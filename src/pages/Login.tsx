@@ -58,19 +58,19 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-5">
-          {/* Email */}
+          {/* Username or email */}
           <div className="space-y-2">
-            <label htmlFor="login-email" className="text-xs text-slate-400 font-bold uppercase tracking-wider">Email</label>
+            <label htmlFor="login-email" className="text-xs text-slate-400 font-bold uppercase tracking-wider">Username or email</label>
             <div className="relative">
               <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center text-slate-500">
                 <Mail className="w-5 h-5" aria-hidden="true" />
               </span>
               <input
                 id="login-email"
-                type="email"
+                type="text"
                 autoComplete="username"
                 required
-                placeholder="you@clinic.com"
+                placeholder="Username or email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full pl-11 pr-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 placeholder-slate-600 text-sm font-medium focus:outline-none focus:border-sky-500/50 transition-colors"
