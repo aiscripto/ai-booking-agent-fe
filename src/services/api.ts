@@ -39,7 +39,7 @@ function refreshSession(): Promise<boolean> {
       throw new Error('Could not renew your session. Please try again.');
     }
 
-    const result = await res.json();
+    const result = await readJson(res);
     if (result.status !== 'success') {
       clearSession();
       return false;
@@ -99,13 +99,27 @@ async function request(url: string, init: RequestInit = {}): Promise<Response> {
 }
 
 /**
+ * Reads the server's answer as JSON. If the answer is not JSON (for example a web page from the wrong
+ * server, or an error page from a proxy), say so in plain words instead of showing a parser error.
+ */
+async function readJson(res: Response): Promise<any> {
+  const type = res.headers.get('content-type') ?? '';
+  if (!type.includes('application/json')) {
+    throw new Error(
+      `The server did not answer as expected (HTTP ${res.status}). Check that the website is connected to the right server.`
+    );
+  }
+  return res.json();
+}
+
+/**
  * Unwraps the canonical API envelope: `{ status, data }` on success,
  * `{ status: 'error', message }` on failure.
  *
  * @throws {Error} carrying the server's message when `status` is `'error'`.
  */
 async function unwrap<T>(res: Response): Promise<T> {
-  const result = await res.json();
+  const result = await readJson(res);
   if (result.status === 'error') {
     throw new Error(result.message || `Request failed with status ${res.status}`);
   }
@@ -301,7 +315,7 @@ export const api = {
     const res = await request(url, {
       method: 'GET'
     });
-    const result = await res.json();
+    const result = await readJson(res);
     if (result.status === 'error') {
       throw new Error(result.message);
     }
@@ -321,7 +335,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data),
     });
-    const result = await res.json();
+    const result = await readJson(res);
     if (result.status === 'error') {
       throw new Error(result.message);
     }
@@ -335,7 +349,7 @@ export const api = {
     const res = await request(`${API_BASE_URL}/appointments/${id}`, {
       method: 'DELETE'
     });
-    const result = await res.json();
+    const result = await readJson(res);
     if (result.status === 'error') {
       throw new Error(result.message);
     }
@@ -348,7 +362,7 @@ export const api = {
     const res = await request(`${API_BASE_URL}/appointments/logs`, {
       method: 'GET'
     });
-    const result = await res.json();
+    const result = await readJson(res);
     if (result.status === 'error') {
       throw new Error(result.message);
     }
@@ -362,7 +376,7 @@ export const api = {
     const res = await request(`${API_BASE_URL}/appointments/logs/${encodeURIComponent(id)}`, {
       method: 'GET'
     });
-    const result = await res.json();
+    const result = await readJson(res);
     if (result.status === 'error') {
       throw new Error(result.message);
     }
@@ -376,7 +390,7 @@ export const api = {
     const res = await request(`${API_BASE_URL}/auth/google`, {
       method: 'GET',
     });
-    const result = await res.json();
+    const result = await readJson(res);
     if (result.status === 'error') {
       throw new Error(result.message);
     }
