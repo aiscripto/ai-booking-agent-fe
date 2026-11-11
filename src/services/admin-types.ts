@@ -143,3 +143,29 @@ export interface TimeOffInput { startDate: string; endDate: string; note: string
 export interface RoleInput { code: string; name: string; description: string; permissions: string[]; isActive: boolean }
 export interface CreateUserInput { username: string; password: string; name: string; roleId: string; employeeId: string | null; isActive: boolean }
 export interface UpdateUserInput { password?: string; name: string; roleId: string; employeeId: string | null; isActive: boolean }
+
+export interface AuditEntry {
+  id: string;
+  userId: string | null;
+  actorName: string;
+  actorRole: string | null;
+  action: string;
+  entityType: string | null;
+  entityId: string | null;
+  summary: string;
+  details: Record<string, unknown> | null;
+  ip: string | null;
+  createdAt: string;
+}
+
+export interface AuditPage {
+  entries: AuditEntry[];
+  nextCursor: string | null;
+}
+
+export interface AuditFilter {
+  q?: string;
+  from?: string;
+  to?: string;
+  cursor?: string;
+}

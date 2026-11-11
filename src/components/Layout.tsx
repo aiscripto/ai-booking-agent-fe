@@ -20,16 +20,17 @@ export const Layout: React.FC<LayoutProps> = ({
   const { tenantName, error: businessError } = useVocabulary();
   const user = getSessionUser();
 
+  // Each screen is shown only if the role allows it (the server checks again on every request).
   const menuItems = [
-    { id: 'dashboard', name: 'Overview', icon: LayoutDashboard },
-    { id: 'calendar', name: 'Calendar View', icon: Calendar },
-    { id: 'logs', name: 'Call Transcripts', icon: PhoneCall },
-    { id: 'book-online', name: 'New Booking', icon: CalendarCheck },
-    { id: 'analytics', name: 'Analytics', icon: BarChart3 },
-  ];
+    { id: 'dashboard', name: 'Overview', icon: LayoutDashboard, allowed: can('dashboard.view') },
+    { id: 'calendar', name: 'Calendar View', icon: Calendar, allowed: can('appointments.view') },
+    { id: 'logs', name: 'Call Transcripts', icon: PhoneCall, allowed: can('calls.view') },
+    { id: 'book-online', name: 'New Booking', icon: CalendarCheck, allowed: can('appointments.create') },
+    { id: 'analytics', name: 'Analytics', icon: BarChart3, allowed: can('appointments.view') && can('calls.view') },
+  ].filter((item) => item.allowed);
 
   // Setup is a group in the sidebar. A user sees only the sections their role allows (none = no Setup item).
-  const setupItems = SETUP_SECTIONS.filter((section) => can(section.permission));
+  const setupItems = SETUP_SECTIONS.filter((section) => section.permissions.some((permission) => can(permission)));
   const setupActive = isSetupTab(activeTab);
   const [setupOpen, setSetupOpen] = useState(setupActive);
   const toggleSetup = () => {

@@ -612,6 +612,15 @@ export const api = {
       await unwrap<unknown>(await request(`${API_BASE_URL}/admin/time-off/${encodeURIComponent(id)}`, { method: 'DELETE' }));
     },
 
+    async listAudit(filter: A.AuditFilter = {}): Promise<A.AuditPage> {
+      const params = new URLSearchParams({ limit: '50' });
+      if (filter.q) params.set('q', filter.q);
+      if (filter.from) params.set('from', new Date(`${filter.from}T00:00:00`).toISOString());
+      if (filter.to) params.set('to', new Date(`${filter.to}T23:59:59.999`).toISOString());
+      if (filter.cursor) params.set('cursor', filter.cursor);
+      return unwrap<A.AuditPage>(await request(`${API_BASE_URL}/admin/audit?${params.toString()}`));
+    },
+
     async listPermissions(): Promise<A.PermissionInfo[]> {
       return unwrap<A.PermissionInfo[]>(await request(`${API_BASE_URL}/admin/permissions`));
     },

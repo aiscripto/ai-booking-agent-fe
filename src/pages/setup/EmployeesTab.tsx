@@ -3,6 +3,9 @@ import { api } from '../../services/api';
 import type { EmployeeRow, WeeklyHours } from '../../services/admin-types';
 import { useVocabulary } from '../../services/vocabulary';
 import { emailProblem, phoneProblem } from '../../services/geo';
+import { can } from '../../services/session';
+import { UserForm } from './UsersTab';
+import type { UserPreset } from './UsersTab';
 import { HoursEditor } from '../../components/setup/HoursEditor';
 import { useAsyncList, messageOf } from '../../components/setup/useAsyncList';
 import { Button, Card, Check, Field, FormModal, LinkButton, ListState, matchesStatus, SelectInput, StatusBadge, Td, TextInput, Th, Toolbar } from '../../components/setup/ui';
@@ -293,6 +296,21 @@ export const EmployeesTab: React.FC = () => {
   const [status, setStatus] = useState<'active' | 'inactive' | 'all'>('active');
   const [departmentFilter, setDepartmentFilter] = useState('');
   const [editing, setEditing] = useState<EmployeeRow | 'new' | null>(null);
+  const [loginFor, setLoginFor] = useState<{ employee: EmployeeRow; preset: UserPreset } | null>(null);
+  const canMakeLogins = can('users.manage');
+
+  /** A starting point for the login of an employee: a user name from their name, and the Consultant role if they take appointments. */
+  const presetFor = (employee: EmployeeRow): UserPreset => {
+    const base = employee.fullName
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/^(dr\.?|mr\.?|mrs\.?|ms\.?)\s+/, '')
+      .replace(/[^a-z0-9]+/g, '.')
+      .replace(/^\.+|\.+$/g, '');
+    const consultantRole = roles.data.find((r) => r.code === 'CONSULTANT');
+    return { username: base, employeeId: employee.id, roleId: employee.isBookable && consultantRole ? consultantRole.id : '' };
+  };
 
   const loading = employees.loading || departments.loading || grades.loading || roles.loading || categories.loading;
   const error = employees.error || departments.error || grades.error || roles.error || categories.error;
@@ -348,6 +366,7 @@ export const EmployeesTab: React.FC = () => {
                 <Th>Grade</Th>
                 <Th>Manager</Th>
                 <Th>Consultant</Th>
+                <Th>Login</Th>
                 <Th>Status</Th>
                 <Th>Actions</Th>
               </tr>
@@ -374,8 +393,14 @@ export const EmployeesTab: React.FC = () => {
                       '—'
                     )}
                   </Td>
+                  <Td>{e.user ? e.user.email : <span className="text-slate-400">No login</span>}</Td>
                   <Td><StatusBadge active={e.isActive} /></Td>
-                  <Td><LinkButton onClick={() => setEditing(e)}>Edit</LinkButton></Td>
+                  <Td>
+                    <span className="flex gap-4">
+                      <LinkButton onClick={() => setEditing(e)}>Edit</LinkButton>
+                      {!e.user && canMakeLogins && e.isActive && <LinkButton onClick={() => setLoginFor({ employee: e, preset: presetFor(e) })}>Create login</LinkButton>}
+                    </span>
+                  </Td>
                 </tr>
               ))}
             </tbody>
@@ -384,6 +409,19 @@ export const EmployeesTab: React.FC = () => {
       </ListState>
       {editing && (
         <EmployeeForm employee={editing === 'new' ? null : editing} lookups={lookups} onCancel={() => setEditing(null)} onDone={() => { setEditing(null); reloadAll(); }} />
+      )}
+      {loginFor && (
+        <UserForm
+          user={null}
+          roles={roles.data}
+          employees={employees.data}
+          preset={loginFor.preset}
+          onCancel={() => setLoginFor(null)}
+          onDone={() => {
+            setLoginFor(null);
+            reloadAll();
+          }}
+        />
       )}
     </Card>
   );

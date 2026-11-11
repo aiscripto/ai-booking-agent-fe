@@ -9,14 +9,15 @@ export interface SetupSectionInfo {
   /** The sidebar tab id (App.tsx switches on it). */
   tab: string;
   name: string;
-  permission: string;
+  /** The section is shown when the user has ANY of these. */
+  permissions: string[];
   icon: React.ElementType;
 }
 
 export const SETUP_SECTIONS: SetupSectionInfo[] = [
-  { id: 'business', tab: 'setup-business', name: 'Business', permission: 'settings.business', icon: Building2 },
-  { id: 'organization', tab: 'setup-organization', name: 'Organization', permission: 'organization.manage', icon: Landmark },
-  { id: 'users', tab: 'setup-users', name: 'User Management', permission: 'users.manage', icon: ShieldCheck },
+  { id: 'business', tab: 'setup-business', name: 'Business', permissions: ['settings.business'], icon: Building2 },
+  { id: 'organization', tab: 'setup-organization', name: 'Organization', permissions: ['organization.manage'], icon: Landmark },
+  { id: 'users', tab: 'setup-users', name: 'User Management', permissions: ['users.manage', 'audit.view'], icon: ShieldCheck },
 ];
 
 export const isSetupTab = (tab: string): boolean => tab.startsWith('setup-');

@@ -4,6 +4,7 @@ import { api } from '../services/api';
 import type { Appointment, AvailableSlots } from '../services/api';
 import { useVocabulary } from '../services/vocabulary';
 import { useConsultants } from '../services/consultants';
+import { can, getSessionUser, isOwnOnly } from '../services/session';
 import { formatDateLong, formatDateTime, formatTime, timeKey, todayKey, weekdayOf, zonedTimeToUtc } from '../services/time';
 import { emailProblem, phoneProblem } from '../services/geo';
 import { Button, Field, FormModal, Modal, TextInput } from '../components/setup/ui';
@@ -32,8 +33,12 @@ export const CalendarView: React.FC = () => {
   const [pickedDate, setPickedDate] = useState('');
   const selectedDate = pickedDate || todayKey(timeZone);
 
+  // A consultant login is limited to its own appointments: the day is always shown for that one consultant.
+  const ownOnly = isOwnOnly();
+  const ownEmployeeId = getSessionUser()?.employeeId ?? null;
+  const canBook = can('appointments.create');
   const [scopeChoice, setScopeChoice] = useState<Scope>('all');
-  const scope: Scope = consultantInfo.active ? scopeChoice : 'all';
+  const scope: Scope = ownOnly ? ownEmployeeId ?? 'none' : consultantInfo.active ? scopeChoice : 'all';
 
   const [filter, setFilter] = useState<'all' | 'free' | 'booked'>('all');
   const [allAppointments, setAllAppointments] = useState<Appointment[]>([]);
@@ -185,6 +190,17 @@ export const CalendarView: React.FC = () => {
         </button>
       );
     }
+    if (free && !canBook) {
+      return (
+        <div className="w-full rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1.5">
+          <span className="flex items-center justify-between gap-2 text-[11px] font-bold text-emerald-200">
+            <span>{timeLabel(time)}</span>
+            <span className="uppercase tracking-wide">Free</span>
+          </span>
+          <span className="block text-sm">&nbsp;</span>
+        </div>
+      );
+    }
     if (free) {
       return (
         <button
@@ -234,6 +250,12 @@ export const CalendarView: React.FC = () => {
         <div role="alert" className="bg-amber-500/10 border border-amber-500/20 text-amber-300 p-3 rounded-xl text-xs font-semibold">
           The calendar cannot be checked right now, so free times cannot be shown and booking is turned off for now.
         </div>
+      )}
+
+      {ownOnly && (
+        <p className="text-sm text-slate-300 bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5">
+          {ownEmployeeId ? 'You see only your own appointments.' : 'Your login is not linked to a consultant, so there is nothing to show. Ask an administrator to link it.'}
+        </p>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-[17rem_1fr] gap-5 items-start">
@@ -297,7 +319,7 @@ export const CalendarView: React.FC = () => {
               {formatDateLong(selectedDate)}
               {loading && <span className="ml-3 text-xs font-normal text-sky-300 animate-pulse">Loading…</span>}
             </h2>
-            {consultantInfo.active && (
+            {consultantInfo.active && !ownOnly && (
               <div className="flex items-center gap-2">
                 <label htmlFor="calendar-scope" className="text-[11px] font-bold uppercase tracking-wider text-slate-300">Consultant</label>
                 <select

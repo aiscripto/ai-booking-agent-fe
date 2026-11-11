@@ -5,6 +5,7 @@ import { useVocabulary } from '../services/vocabulary';
 import { StatusBoard } from '../components/StatusBoard';
 import type { BookingItem } from '../components/StatusBoard';
 import { CallTranscriptDrawer } from '../components/CallTranscriptDrawer';
+import { can, isOwnOnly } from '../services/session';
 import { Calendar, Phone, CheckCircle, AlertCircle, Link, Layers } from 'lucide-react';
 
 interface DashboardProps {
@@ -28,7 +29,8 @@ export const Dashboard: React.FC<DashboardProps> = () => {
     setLoading(true);
     setError('');
     try {
-      const [appts, logs] = await Promise.all([api.getAppointments(), api.getCallLogs()]);
+      // Call logs only for roles that may see them (a consultant login does not).
+      const [appts, logs] = await Promise.all([api.getAppointments(), can('calls.view') ? api.getCallLogs() : Promise.resolve<CallLog[]>([])]);
       setAppointments(appts);
       setCallLogs(logs);
     } catch (err: unknown) {
@@ -125,7 +127,13 @@ export const Dashboard: React.FC<DashboardProps> = () => {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      {isOwnOnly() && (
+        <p className="text-sm text-slate-300 bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5">
+          You see only your own appointments.
+        </p>
+      )}
+
+      <div className={`grid grid-cols-1 ${can('calls.view') ? 'md:grid-cols-3' : 'md:grid-cols-2'} gap-6`}>
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 flex items-center space-x-5 shadow-lg">
           <div className="bg-sky-500/10 p-4 rounded-xl text-sky-400">
             <Calendar className="w-6 h-6" aria-hidden="true" />
@@ -136,6 +144,7 @@ export const Dashboard: React.FC<DashboardProps> = () => {
           </div>
         </div>
 
+        {can('calls.view') && (
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 flex items-center space-x-5 shadow-lg">
           <div className="bg-cyan-500/10 p-4 rounded-xl text-cyan-400">
             <Phone className="w-6 h-6" aria-hidden="true" />
@@ -146,6 +155,7 @@ export const Dashboard: React.FC<DashboardProps> = () => {
             <p className="text-xs text-slate-500 mt-0.5">Up to the latest 30</p>
           </div>
         </div>
+        )}
 
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-lg space-y-3">
           <div className="flex items-center justify-between">
@@ -166,7 +176,7 @@ export const Dashboard: React.FC<DashboardProps> = () => {
                 <p className="text-sm font-bold mt-1 text-slate-200">{calendar ? calendar.label : 'Status unknown'}</p>
               </div>
             </div>
-            {googleSource !== 'tenant' && (
+            {googleSource !== 'tenant' && can('settings.business') && (
               <button
                 onClick={handleConnectCalendar}
                 disabled={googleAuthLoading}

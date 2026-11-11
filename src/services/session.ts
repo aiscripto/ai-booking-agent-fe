@@ -30,6 +30,8 @@ export interface SessionUser {
   roleName: string;
   /** What the user may do. Used only to hide screens; the server checks every request again. */
   permissions: string[];
+  /** The employee (consultant) this login is linked to, if any. */
+  employeeId: string | null;
 }
 
 let accessToken: string | null = null;
@@ -70,4 +72,9 @@ export function clearSession(): void {
 /** True when the signed-in user's role grants the permission. */
 export function can(permission: string): boolean {
   return sessionUser?.permissions.includes(permission) ?? false;
+}
+
+/** True when the user's role is limited to their own appointments (a consultant login). */
+export function isOwnOnly(): boolean {
+  return can('appointments.own_only');
 }

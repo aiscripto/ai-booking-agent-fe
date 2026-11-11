@@ -4,15 +4,29 @@ import type { EmployeeRow, RoleRow, UserRow } from '../../services/admin-types';
 import { useAsyncList, messageOf } from '../../components/setup/useAsyncList';
 import { Card, Check, Field, FormModal, LinkButton, ListState, matchesStatus, SelectInput, StatusBadge, Td, TextInput, Th, Toolbar } from '../../components/setup/ui';
 
-const UserForm: React.FC<{ user: UserRow | null; roles: RoleRow[]; employees: EmployeeRow[]; onDone: () => void; onCancel: () => void }> = ({ user, roles, employees, onDone, onCancel }) => {
+export interface UserPreset {
+  username: string;
+  employeeId: string;
+  roleId: string;
+}
+
+export const UserForm: React.FC<{
+  user: UserRow | null;
+  roles: RoleRow[];
+  employees: EmployeeRow[];
+  /** Starting values for a new login (used by "Create login" on an employee). */
+  preset?: UserPreset;
+  onDone: () => void;
+  onCancel: () => void;
+}> = ({ user, roles, employees, preset, onDone, onCancel }) => {
   // A user made before roles were editable has no role id yet; match it by its code.
   const startRole = user ? (user.role.id ?? roles.find((r) => r.code === user.role.code)?.id ?? '') : '';
-  const [username, setUsername] = useState(user?.username ?? '');
+  const [username, setUsername] = useState(user?.username ?? preset?.username ?? '');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [name, setName] = useState(user?.name ?? '');
-  const [roleId, setRoleId] = useState(startRole);
-  const [employeeId, setEmployeeId] = useState(user?.employee?.id ?? '');
+  const [roleId, setRoleId] = useState(startRole || preset?.roleId || '');
+  const [employeeId, setEmployeeId] = useState(user?.employee?.id ?? preset?.employeeId ?? '');
   const [isActive, setIsActive] = useState(user?.isActive ?? true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
