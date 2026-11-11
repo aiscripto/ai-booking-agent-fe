@@ -1,7 +1,7 @@
 import React from 'react';
 import { useVocabulary } from '../services/vocabulary';
-import { getSessionUser } from '../services/session';
-import { LayoutDashboard, Calendar, PhoneCall, LogOut, CalendarCheck, BarChart3, Stethoscope } from 'lucide-react';
+import { can, getSessionUser } from '../services/session';
+import { LayoutDashboard, Calendar, PhoneCall, LogOut, CalendarCheck, BarChart3, Stethoscope, Settings } from 'lucide-react';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -26,6 +26,10 @@ export const Layout: React.FC<LayoutProps> = ({
     { id: 'logs', name: 'Call Transcripts', icon: PhoneCall },
     { id: 'book-online', name: 'New Booking', icon: CalendarCheck },
     { id: 'analytics', name: 'Analytics', icon: BarChart3 },
+    // Setup is shown only to roles that may use at least one of its screens.
+    ...(can('settings.business') || can('organization.manage') || can('users.manage')
+      ? [{ id: 'setup', name: 'Setup', icon: Settings }]
+      : []),
   ];
 
 
@@ -83,7 +87,7 @@ export const Layout: React.FC<LayoutProps> = ({
             </p>
             {user && (
               <p className="text-xs text-slate-500 truncate mt-1" title={user.email}>
-                {user.name || user.email} · {user.role.replace('_', ' ').toLowerCase()}
+                {user.name || user.email} · {user.roleName.toLowerCase()}
               </p>
             )}
           </div>

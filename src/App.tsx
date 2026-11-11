@@ -7,6 +7,7 @@ import { CallLogsView } from './pages/CallLogsView';
 import { NewBookingPage } from './pages/NewBookingPage';
 import { AnalyticsView } from './pages/AnalyticsView';
 import { DoctorDirectoryManager } from './pages/DoctorDirectoryManager';
+import { SetupView } from './pages/setup/SetupView';
 import { api } from './services/api';
 import { AUTH_EXPIRED_EVENT } from './services/session';
 
@@ -73,6 +74,7 @@ function App() {
       {activeTab === 'logs' && <CallLogsView />}
       {activeTab === 'book-online' && <NewBookingPage />}
       {activeTab === 'analytics' && <AnalyticsView />}
+      {activeTab === 'setup' && <SetupView />}
     </Layout>
   );
 }

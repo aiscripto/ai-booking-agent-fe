@@ -26,6 +26,10 @@ export interface SessionUser {
   name: string | null;
   role: UserRole;
   tenantId: string;
+  /** Name of the user's role, for display. */
+  roleName: string;
+  /** What the user may do. Used only to hide screens; the server checks every request again. */
+  permissions: string[];
 }
 
 let accessToken: string | null = null;
@@ -61,4 +65,9 @@ export function clearSession(): void {
   accessToken = null;
   sessionUser = null;
   removeLegacyKeys();
+}
+
+/** True when the signed-in user's role grants the permission. */
+export function can(permission: string): boolean {
+  return sessionUser?.permissions.includes(permission) ?? false;
 }

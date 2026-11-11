@@ -7,6 +7,7 @@
 import { API_BASE_URL } from '../config/env';
 import { AUTH_EXPIRED_EVENT, clearSession, getSessionUser, getToken, setSession } from './session';
 import type { SessionUser } from './session';
+import type * as A from './admin-types';
 
 const CSRF_HEADER = { 'X-Requested-With': 'fetch' };
 
@@ -511,5 +512,80 @@ export const api = {
       { method: 'POST', body: JSON.stringify({ provider }) }
     );
     return unwrap<TelehealthRoom>(res);
+  },
+
+  // ── Setup panel (admin) ───────────────────────────────────────────────────
+  // Every call is for the signed-in user's own business; the server reads the tenant from the
+  // token and checks the user's permission again.
+
+  admin: {
+    async getBusiness(): Promise<A.Business> {
+      return unwrap<A.Business>(await request(`${API_BASE_URL}/admin/business`));
+    },
+    async saveBusiness(input: A.BusinessInput): Promise<A.Business> {
+      return unwrap<A.Business>(await request(`${API_BASE_URL}/admin/business`, { method: 'PUT', body: JSON.stringify(input) }));
+    },
+
+    async listGrades(): Promise<A.Grade[]> {
+      return unwrap<A.Grade[]>(await request(`${API_BASE_URL}/admin/grades`));
+    },
+    async createGrade(input: A.GradeInput): Promise<A.Grade> {
+      return unwrap<A.Grade>(await request(`${API_BASE_URL}/admin/grades`, { method: 'POST', body: JSON.stringify(input) }));
+    },
+    async updateGrade(id: string, input: A.GradeInput): Promise<A.Grade> {
+      return unwrap<A.Grade>(await request(`${API_BASE_URL}/admin/grades/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(input) }));
+    },
+    async deleteGrade(id: string): Promise<void> {
+      await unwrap<unknown>(await request(`${API_BASE_URL}/admin/grades/${encodeURIComponent(id)}`, { method: 'DELETE' }));
+    },
+
+    async listDepartments(): Promise<A.DepartmentRow[]> {
+      return unwrap<A.DepartmentRow[]>(await request(`${API_BASE_URL}/admin/departments`));
+    },
+    async createDepartment(input: A.DepartmentInput): Promise<A.DepartmentRow> {
+      return unwrap<A.DepartmentRow>(await request(`${API_BASE_URL}/admin/departments`, { method: 'POST', body: JSON.stringify(input) }));
+    },
+    async updateDepartment(id: string, input: A.DepartmentInput): Promise<A.DepartmentRow> {
+      return unwrap<A.DepartmentRow>(await request(`${API_BASE_URL}/admin/departments/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(input) }));
+    },
+    async deleteDepartment(id: string): Promise<void> {
+      await unwrap<unknown>(await request(`${API_BASE_URL}/admin/departments/${encodeURIComponent(id)}`, { method: 'DELETE' }));
+    },
+
+    async listEmployees(): Promise<A.EmployeeRow[]> {
+      return unwrap<A.EmployeeRow[]>(await request(`${API_BASE_URL}/admin/employees`));
+    },
+    async createEmployee(input: A.EmployeeInput): Promise<A.EmployeeRow> {
+      return unwrap<A.EmployeeRow>(await request(`${API_BASE_URL}/admin/employees`, { method: 'POST', body: JSON.stringify(input) }));
+    },
+    async updateEmployee(id: string, input: A.EmployeeInput): Promise<A.EmployeeRow> {
+      return unwrap<A.EmployeeRow>(await request(`${API_BASE_URL}/admin/employees/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(input) }));
+    },
+
+    async listPermissions(): Promise<A.PermissionInfo[]> {
+      return unwrap<A.PermissionInfo[]>(await request(`${API_BASE_URL}/admin/permissions`));
+    },
+    async listRoles(): Promise<A.RoleRow[]> {
+      return unwrap<A.RoleRow[]>(await request(`${API_BASE_URL}/admin/roles`));
+    },
+    async createRole(input: A.RoleInput): Promise<A.RoleRow> {
+      return unwrap<A.RoleRow>(await request(`${API_BASE_URL}/admin/roles`, { method: 'POST', body: JSON.stringify(input) }));
+    },
+    async updateRole(id: string, input: A.RoleInput): Promise<A.RoleRow> {
+      return unwrap<A.RoleRow>(await request(`${API_BASE_URL}/admin/roles/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(input) }));
+    },
+    async deleteRole(id: string): Promise<void> {
+      await unwrap<unknown>(await request(`${API_BASE_URL}/admin/roles/${encodeURIComponent(id)}`, { method: 'DELETE' }));
+    },
+
+    async listUsers(): Promise<A.UserRow[]> {
+      return unwrap<A.UserRow[]>(await request(`${API_BASE_URL}/admin/users`));
+    },
+    async createUser(input: A.CreateUserInput): Promise<A.UserRow> {
+      return unwrap<A.UserRow>(await request(`${API_BASE_URL}/admin/users`, { method: 'POST', body: JSON.stringify(input) }));
+    },
+    async updateUser(id: string, input: A.UpdateUserInput): Promise<A.UserRow> {
+      return unwrap<A.UserRow>(await request(`${API_BASE_URL}/admin/users/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(input) }));
+    },
   },
 };
