@@ -13,6 +13,8 @@ export interface Business {
   address: string | null;
   city: string | null;
   state: string | null;
+  /** ISO country code, for example US. */
+  country: string | null;
   zip: string | null;
   latitude: number | null;
   longitude: number | null;
@@ -113,6 +115,7 @@ export interface BusinessInput {
   address: string;
   city: string;
   state: string;
+  country: string;
   zip: string;
   latitude: number | null;
   longitude: number | null;

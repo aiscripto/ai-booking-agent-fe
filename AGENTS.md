@@ -40,6 +40,7 @@ Hard gates. Each maps to an automated check in `scripts/verify.sh`.
 | R7 | `npx tsc -b` passes with zero errors. | `verify.sh` |
 | R8 | `npx oxlint` reports zero **errors** (currently ratcheted at 2 — see §8). | `verify.sh` |
 | R9 | **No fake data and no fake controls.** Every number, text, list and control on a screen is real and wired. | review only (cannot be automated) |
+| R10 | **UI/UX work is done as a Principal UI/UX Designer and Developer**: design first, forms fit the screen without scrolling where possible, form left and visual right, validate as you type (see 6A). | review only |
 
 **R9 in plain words (owner rule, 2026-11-04 and 2026-11-11):**
 - Show real data from the API, or an honest state: "No data yet" or "Could not load" with a retry. Never a made-up
@@ -193,6 +194,36 @@ healthcare, salons, law firms, real estate, automotive and fitness. Pull labels 
 
 **White-labelling:** the public booking surface must render the tenant's branding from the
 API, never our own. No platform branding on a tenant's public page.
+
+---
+
+## 6A. UI/UX work: act as a Principal UI/UX Designer and Developer (R10)
+
+Owner rule, 2026-11-11. Every screen, form or dialog is designed first and then built, in the role of a
+**Principal UI/UX Designer and Developer**: think about who uses it, what they must finish, and how little effort it
+should take, then write the code to match. Not just "make the fields appear".
+
+**Forms (the owner does not want scrolling where it can be avoided):**
+- A form fits on one screen without scrolling wherever possible. Check it at 1366 x 768 and at 1920 x 1080.
+- Use the width: two or three columns for short fields; put related fields in one group.
+- A long form is split into **tabs or steps inside the form** (for example Details | Consultant | Hours), not made longer.
+- A form with a visual part uses a **side-by-side layout: form on the left, the visual (map, preview) on the right.**
+- The Save and Cancel buttons stay visible (not below the fold). If content must scroll, only the middle scrolls.
+- Scrolling is fine for real lists and tables, inside their own panel. Never make the whole page scroll to reach Save.
+- Labels sit above fields. Required fields are marked. Placeholder text is neutral (see R9).
+- **Validate while the person types, next to the field**, in plain words. Never clear or change what the person typed
+  without telling them. Save is blocked while something is invalid, and the reason is shown.
+- Prefer a list or a dropdown over free text when the choices are known (country, state, role, time zone).
+
+**Layout and visual design:**
+- Clear hierarchy: one title per screen, one main action, quiet secondary actions.
+- Status is never shown by color alone: use words or icons too (green Free, red Booked, grey Not available).
+- Dense but calm: consistent spacing, aligned columns, no decoration that carries no meaning (R9).
+- Copy the layout of a reference design, not its content or its fake controls (R9).
+- Every screen works from keyboard, has visible focus, labelled controls and enough contrast (section 7).
+
+Not automated: it is a review rule. A change with a form is not done until the form was checked for scrolling at the
+two sizes above (or the reason it must scroll is stated in the summary).
 
 ---
 

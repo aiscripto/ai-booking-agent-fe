@@ -2,9 +2,10 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { api } from '../../services/api';
 import type { EmployeeRow, WeeklyHours } from '../../services/admin-types';
 import { useVocabulary } from '../../services/vocabulary';
+import { emailProblem, phoneProblem } from '../../services/geo';
 import { HoursEditor } from '../../components/setup/HoursEditor';
 import { useAsyncList, messageOf } from '../../components/setup/useAsyncList';
-import { Button, Card, Check, Field, FormActions, LinkButton, ListState, matchesStatus, Modal, SelectInput, StatusBadge, Td, TextInput, Th, Toolbar } from '../../components/setup/ui';
+import { Button, Card, Check, Field, FormModal, LinkButton, ListState, matchesStatus, SelectInput, StatusBadge, Td, TextInput, Th, Toolbar } from '../../components/setup/ui';
 
 interface Lookups {
   departments: Array<{ id: string; name: string }>;
@@ -131,96 +132,153 @@ const EmployeeForm: React.FC<{ employee: EmployeeRow | null; lookups: Lookups; o
 
   const managers = lookups.employees.filter((m) => m.isActive && m.id !== employee?.id);
 
+  const nameProblem = fullName.trim() === '' ? 'The full name is required.' : '';
+  const emailIssue = emailProblem(email);
+  const phoneIssue = phoneProblem(phone);
+  const firstProblem = nameProblem || emailIssue || phoneIssue;
+
+  type Tab = 'details' | 'consultant' | 'hours' | 'daysoff';
+  const [tab, setTab] = useState<Tab>('details');
+  const tabs: Array<{ id: Tab; label: string }> = [
+    { id: 'details', label: 'Details' },
+    { id: 'consultant', label: 'Consultant' },
+    ...(isBookable ? [{ id: 'hours' as Tab, label: 'Working hours' }] : []),
+    ...(isBookable && employee ? [{ id: 'daysoff' as Tab, label: 'Days off' }] : []),
+  ];
+  const activeTab: Tab = tabs.some((t) => t.id === tab) ? tab : 'details';
+
   return (
-    <Modal title={employee ? 'Edit employee' : 'Create employee'} onClose={onCancel} wide>
-      <form onSubmit={submit} className="space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Field label="Employee code" hint="Assigned by the system.">
-            {(id) => <TextInput id={id} value={employee?.code ?? 'Assigned when you save'} readOnly disabled />}
-          </Field>
-          <Field label="Full name">{(id) => <TextInput id={id} value={fullName} onChange={(e) => setFullName(e.target.value)} required maxLength={120} />}</Field>
-          <Field label="Role">
-            {(id) => (
-              <SelectInput id={id} value={roleId} onChange={(e) => setRoleId(e.target.value)}>
-                <option value="">— None —</option>
-                {lookups.roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
-              </SelectInput>
-            )}
-          </Field>
-          <Field label="Department">
-            {(id) => (
-              <SelectInput id={id} value={departmentId} onChange={(e) => setDepartmentId(e.target.value)}>
-                <option value="">— None —</option>
-                {lookups.departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-              </SelectInput>
-            )}
-          </Field>
-          <Field label="Email">{(id) => <TextInput id={id} type="email" value={email} onChange={(e) => setEmail(e.target.value)} maxLength={254} />}</Field>
-          <Field label="Phone">{(id) => <TextInput id={id} type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={40} />}</Field>
-          <Field label="Grade">
-            {(id) => (
-              <SelectInput id={id} value={gradeId} onChange={(e) => setGradeId(e.target.value)}>
-                <option value="">— None —</option>
-                {lookups.grades.map((g) => <option key={g.id} value={g.id}>{g.code}</option>)}
-              </SelectInput>
-            )}
-          </Field>
-          <Field label="Manager">
-            {(id) => (
-              <SelectInput id={id} value={managerId} onChange={(e) => setManagerId(e.target.value)}>
-                <option value="">— No manager —</option>
-                {managers.map((m) => <option key={m.id} value={m.id}>{m.fullName} ({m.code})</option>)}
-              </SelectInput>
-            )}
-          </Field>
-        </div>
-        <fieldset className="border border-slate-800 rounded-xl p-4 space-y-4">
-          <legend className="px-2 text-[11px] font-bold uppercase tracking-wider text-slate-300">Consultant</legend>
-          <Check label="Takes appointments (callers and staff can book this person)" checked={isBookable} onChange={setIsBookable} />
-          {isBookable && (
-            <>
-              <Field label="Title the voice agent says" hint="For example: dentist, tax advisor.">
-                {(id) => <TextInput id={id} value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120} />}
-              </Field>
-              <div>
-                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-2">Services offered</p>
-                {lookups.categories.length === 0 ? (
-                  <p className="text-sm text-slate-400">No service categories yet. Add them in Organization, under Service categories.</p>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {lookups.categories.map((c) => (
-                      <Check
-                        key={c.id}
-                        label={c.name}
-                        checked={categoryIds.includes(c.id)}
-                        onChange={(on) => setCategoryIds((list) => (on ? [...new Set([...list, c.id])] : list.filter((x) => x !== c.id)))}
-                      />
-                    ))}
-                  </div>
-                )}
+    <FormModal
+      title={employee ? 'Edit employee' : 'Create employee'}
+      onClose={onCancel}
+      onSubmit={submit}
+      saving={saving}
+      error={error}
+      size="xl"
+      canSave={!firstProblem}
+      blockedReason={firstProblem}
+    >
+      <div role="tablist" aria-label="Employee sections" className="flex flex-wrap gap-1.5 mb-4 border-b border-slate-800 pb-3">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === t.id}
+            onClick={() => setTab(t.id)}
+            className={`px-4 py-1.5 rounded-lg text-sm font-semibold ${activeTab === t.id ? 'bg-sky-600 text-white' : 'bg-slate-800 text-slate-200 hover:bg-slate-700'}`}
+          >
+            {t.label}
+            {t.id === 'consultant' && isBookable && <span className="ml-2 text-[10px] uppercase tracking-wider text-sky-200">On</span>}
+          </button>
+        ))}
+      </div>
+
+      <div className="min-h-[18rem]">
+        {activeTab === 'details' && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4 gap-y-3 content-start">
+            <Field label="Employee code" hint="Assigned by the system.">
+              {(id) => <TextInput id={id} value={employee?.code ?? 'On save'} readOnly disabled />}
+            </Field>
+            <Field label="Full name" error={nameProblem} className="sm:col-span-2">
+              {(id) => <TextInput id={id} value={fullName} onChange={(e) => setFullName(e.target.value)} maxLength={120} aria-invalid={Boolean(nameProblem)} />}
+            </Field>
+            <Field label="Role">
+              {(id) => (
+                <SelectInput id={id} value={roleId} onChange={(e) => setRoleId(e.target.value)}>
+                  <option value="">— None —</option>
+                  {lookups.roles.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                </SelectInput>
+              )}
+            </Field>
+            <Field label="Department">
+              {(id) => (
+                <SelectInput id={id} value={departmentId} onChange={(e) => setDepartmentId(e.target.value)}>
+                  <option value="">— None —</option>
+                  {lookups.departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </SelectInput>
+              )}
+            </Field>
+            <Field label="Grade">
+              {(id) => (
+                <SelectInput id={id} value={gradeId} onChange={(e) => setGradeId(e.target.value)}>
+                  <option value="">— None —</option>
+                  {lookups.grades.map((g) => <option key={g.id} value={g.id}>{g.code}</option>)}
+                </SelectInput>
+              )}
+            </Field>
+            <Field label="Email" error={emailIssue}>
+              {(id) => <TextInput id={id} type="email" value={email} onChange={(e) => setEmail(e.target.value)} maxLength={254} aria-invalid={Boolean(emailIssue)} />}
+            </Field>
+            <Field label="Phone" error={phoneIssue}>
+              {(id) => <TextInput id={id} type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={40} aria-invalid={Boolean(phoneIssue)} />}
+            </Field>
+            <Field label="Manager">
+              {(id) => (
+                <SelectInput id={id} value={managerId} onChange={(e) => setManagerId(e.target.value)}>
+                  <option value="">— No manager —</option>
+                  {managers.map((m) => <option key={m.id} value={m.id}>{m.fullName} ({m.code})</option>)}
+                </SelectInput>
+              )}
+            </Field>
+            <div className="sm:col-span-3">
+              <Check label="Active" checked={isActive} onChange={setIsActive} />
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'consultant' && (
+          <div className="space-y-4">
+            <Check label="Takes appointments (callers and staff can book this person)" checked={isBookable} onChange={setIsBookable} />
+            {isBookable && (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4 gap-y-3">
+                <Field label="Title the voice agent says" hint="For example: dentist, tax advisor." className="sm:col-span-1">
+                  {(id) => <TextInput id={id} value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120} />}
+                </Field>
+                <div className="sm:col-span-2">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1">Services offered</p>
+                  {lookups.categories.length === 0 ? (
+                    <p className="text-sm text-slate-400">No service categories yet. Add them in Organization, under Service categories.</p>
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1.5">
+                      {lookups.categories.map((c) => (
+                        <Check
+                          key={c.id}
+                          label={c.name}
+                          checked={categoryIds.includes(c.id)}
+                          onChange={(on) => setCategoryIds((list) => (on ? [...new Set([...list, c.id])] : list.filter((x) => x !== c.id)))}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
-              <div className="space-y-2">
-                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-300">Working hours</p>
-                <Check
-                  label="Follows the business hours"
-                  checked={ownHours === null}
-                  onChange={(follow) => setOwnHours(follow ? null : (lookups.businessWeek ?? Array.from({ length: 7 }, () => [])).map((r) => r.map((x) => ({ ...x }))))}
-                />
-                {ownHours !== null && (
-                  <>
-                    <HoursEditor value={ownHours} onChange={setOwnHours} />
-                    <p className="text-xs text-slate-400">A consultant can only be booked when both these hours and the business hours are open.</p>
-                  </>
-                )}
-              </div>
-              {employee ? <TimeOffPanel employeeId={employee.id} /> : <p className="text-xs text-slate-400">Save first, then you can add days off.</p>}
-            </>
-          )}
-        </fieldset>
-        <Check label="Active" checked={isActive} onChange={setIsActive} />
-        <FormActions saving={saving} error={error} onCancel={onCancel} />
-      </form>
-    </Modal>
+            )}
+            {!isBookable && <p className="text-sm text-slate-400">Turn this on to set the title, services, working hours and days off.</p>}
+          </div>
+        )}
+
+        {activeTab === 'hours' && (
+          <div className="space-y-3">
+            <Check
+              label="Follows the business hours"
+              checked={ownHours === null}
+              onChange={(follow) => setOwnHours(follow ? null : (lookups.businessWeek ?? Array.from({ length: 7 }, () => [])).map((r) => r.map((x) => ({ ...x }))))}
+            />
+            {ownHours !== null ? (
+              <>
+                <HoursEditor value={ownHours} onChange={setOwnHours} />
+                <p className="text-xs text-slate-400">A consultant can only be booked when both these hours and the business hours are open.</p>
+              </>
+            ) : (
+              <p className="text-sm text-slate-400">This consultant works whenever the business is open. Untick the box to set their own days and hours.</p>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'daysoff' && employee && <TimeOffPanel employeeId={employee.id} />}
+      </div>
+    </FormModal>
   );
 };
 

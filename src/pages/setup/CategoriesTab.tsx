@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { api } from '../../services/api';
 import type { ServiceCategoryRow } from '../../services/admin-types';
 import { useAsyncList, messageOf } from '../../components/setup/useAsyncList';
-import { Card, Check, Confirm, Field, FormActions, LinkButton, ListState, matchesStatus, Modal, StatusBadge, Td, TextArea, TextInput, Th, Toolbar } from '../../components/setup/ui';
+import { Card, Check, Confirm, Field, FormModal, LinkButton, ListState, matchesStatus, StatusBadge, Td, TextArea, TextInput, Th, Toolbar } from '../../components/setup/ui';
 
 const CategoryForm: React.FC<{ category: ServiceCategoryRow | null; onDone: () => void; onCancel: () => void }> = ({ category, onDone, onCancel }) => {
   const [name, setName] = useState(category?.name ?? '');
@@ -10,6 +10,8 @@ const CategoryForm: React.FC<{ category: ServiceCategoryRow | null; onDone: () =
   const [isActive, setIsActive] = useState(category?.isActive ?? true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  const nameProblem = name.trim() === '' ? 'The name is required.' : '';
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,16 +29,15 @@ const CategoryForm: React.FC<{ category: ServiceCategoryRow | null; onDone: () =
   };
 
   return (
-    <Modal title={category ? 'Edit service category' : 'Create service category'} onClose={onCancel}>
-      <form onSubmit={submit} className="space-y-4">
-        <Field label="Name" hint="What a caller asks for, for example Dentist or Tax advice.">
-          {(id) => <TextInput id={id} value={name} onChange={(e) => setName(e.target.value)} required maxLength={80} />}
+    <FormModal title={category ? 'Edit service category' : 'Create service category'} onClose={onCancel} onSubmit={submit} saving={saving} error={error} size="md" canSave={!nameProblem} blockedReason={nameProblem}>
+      <div className="space-y-3">
+        <Field label="Name" hint="What a caller asks for, for example Dentist or Tax advice." error={nameProblem}>
+          {(id) => <TextInput id={id} value={name} onChange={(e) => setName(e.target.value)} maxLength={80} aria-invalid={Boolean(nameProblem)} />}
         </Field>
         <Field label="Description (optional)">{(id) => <TextArea id={id} value={description} onChange={(e) => setDescription(e.target.value)} maxLength={300} />}</Field>
         <Check label="Active" checked={isActive} onChange={setIsActive} />
-        <FormActions saving={saving} error={error} onCancel={onCancel} />
-      </form>
-    </Modal>
+      </div>
+    </FormModal>
   );
 };
 

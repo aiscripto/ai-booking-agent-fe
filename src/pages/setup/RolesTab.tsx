@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { api } from '../../services/api';
 import type { RoleRow } from '../../services/admin-types';
 import { useAsyncList, messageOf } from '../../components/setup/useAsyncList';
-import { Card, Check, Confirm, Field, FormActions, LinkButton, ListState, matchesStatus, Modal, StatusBadge, Td, TextArea, TextInput, Th, Toolbar } from '../../components/setup/ui';
+import { Card, Check, Confirm, Field, FormModal, LinkButton, ListState, matchesStatus, StatusBadge, Td, TextArea, TextInput, Th, Toolbar } from '../../components/setup/ui';
 
 const RoleForm: React.FC<{ role: RoleRow | null; onDone: () => void; onCancel: () => void }> = ({ role, onDone, onCancel }) => {
   const permissions = useAsyncList(api.admin.listPermissions);
@@ -33,20 +33,40 @@ const RoleForm: React.FC<{ role: RoleRow | null; onDone: () => void; onCancel: (
     }
   };
 
-  return (
-    <Modal title={role ? 'Edit role' : 'Create role'} onClose={onCancel} wide>
-      <form onSubmit={submit} className="space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Field label="Role">{(id) => <TextInput id={id} value={name} onChange={(e) => setName(e.target.value)} required maxLength={80} />}</Field>
-          <Field label="Code" hint={role?.isSystem ? 'The code of a built-in role cannot change.' : 'Capital letters, numbers and underscore, for example LINE_MANAGER.'}>
-            {(id) => <TextInput id={id} value={code} onChange={(e) => setCode(e.target.value)} required maxLength={40} readOnly={role?.isSystem === true} disabled={role?.isSystem === true} />}
-          </Field>
-        </div>
-        <Field label="Description">{(id) => <TextArea id={id} value={description} onChange={(e) => setDescription(e.target.value)} maxLength={300} />}</Field>
+  const nameProblem = name.trim() === '' ? 'The role name is required.' : '';
+  const codeProblem = code.trim() === '' ? 'The code is required.' : /^[A-Za-z][A-Za-z0-9_]{1,39}$/.test(code.trim()) ? '' : 'Use letters, numbers and underscore, starting with a letter (for example LINE_MANAGER).';
+  const firstProblem = nameProblem || codeProblem;
 
-        <fieldset className="border border-slate-800 rounded-xl p-4">
+  return (
+    <FormModal
+      title={role ? 'Edit role' : 'Create role'}
+      onClose={onCancel}
+      onSubmit={submit}
+      saving={saving}
+      error={error}
+      size="xl"
+      canSave={!firstProblem}
+      blockedReason={firstProblem}
+    >
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-x-6 gap-y-3">
+        {/* Left: who the role is */}
+        <div className="lg:col-span-2 space-y-3 content-start">
+          <Field label="Role" error={nameProblem}>{(id) => <TextInput id={id} value={name} onChange={(e) => setName(e.target.value)} maxLength={80} aria-invalid={Boolean(nameProblem)} />}</Field>
+          <Field
+            label="Code"
+            error={codeProblem}
+            hint={role?.isSystem ? 'The code of a built-in role cannot change.' : 'Capital letters, numbers and underscore.'}
+          >
+            {(id) => <TextInput id={id} value={code} onChange={(e) => setCode(e.target.value)} maxLength={40} readOnly={role?.isSystem === true} disabled={role?.isSystem === true} aria-invalid={Boolean(codeProblem)} />}
+          </Field>
+          <Field label="Description">{(id) => <TextArea id={id} value={description} onChange={(e) => setDescription(e.target.value)} maxLength={300} />}</Field>
+          <Check label="Active" checked={isActive} onChange={setIsActive} disabled={isAdmin} />
+        </div>
+
+        {/* Right: what the role may do */}
+        <fieldset className="lg:col-span-3 border border-slate-800 rounded-xl p-3">
           <legend className="px-2 text-[11px] font-bold uppercase tracking-wider text-slate-300">Permissions</legend>
-          {isAdmin && <p className="text-xs text-slate-400 mb-3">The Admin role always has every permission, so nobody can be locked out.</p>}
+          {isAdmin && <p className="text-xs text-slate-400 mb-2">The Admin role always has every permission, so nobody can be locked out.</p>}
           {permissions.loading && <p role="status" className="text-sm text-slate-400">Loading permissions…</p>}
           {permissions.error && (
             <p role="alert" className="text-sm text-rose-300">
@@ -54,20 +74,17 @@ const RoleForm: React.FC<{ role: RoleRow | null; onDone: () => void; onCancel: (
               <button type="button" onClick={permissions.reload} className="underline">Try again</button>
             </p>
           )}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-2">
             {permissions.data.map((p) => (
-              <div key={p.code}>
+              <div key={p.code} title={p.description}>
                 <Check label={p.label} checked={isAdmin || granted.includes(p.code)} disabled={isAdmin} onChange={(on) => toggle(p.code, on)} />
-                <p className="text-xs text-slate-400 ml-6">{p.description}</p>
+                <p className="text-[11px] leading-tight text-slate-400 ml-6">{p.description}</p>
               </div>
             ))}
           </div>
         </fieldset>
-
-        <Check label="Active" checked={isActive} onChange={setIsActive} disabled={isAdmin} />
-        <FormActions saving={saving} error={error} onCancel={onCancel} />
-      </form>
-    </Modal>
+      </div>
+    </FormModal>
   );
 };
 

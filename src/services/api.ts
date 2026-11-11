@@ -257,7 +257,7 @@ export interface AvailableSlots {
   /** The server's own sentence about the day. */
   message: string;
   /** Each free time: the UTC instant to book and the label to show (in the business's time zone). */
-  slots: Array<{ iso: string; label: string; /** Consultants free at that time (empty without consultants). */ consultants: string[] }>;
+  slots: Array<{ iso: string; label: string; /** Consultants free at that time (empty without consultants). */ consultants: string[]; /** The same consultants as ids. */ consultantIds: string[] }>;
 }
 
 /** Who can be booked and for what. Empty lists mean the business books one calendar. */
@@ -435,12 +435,13 @@ export const api = {
       availableSlots: string[];
       availableSlotsIso: string[];
       slotConsultants?: string[][];
+      slotConsultantIds?: string[][];
     }>(res);
     return {
       closed: data.closed,
       unavailable: data.unavailable,
       message: data.responseText,
-      slots: data.availableSlotsIso.map((iso, i) => ({ iso, label: data.availableSlots[i], consultants: data.slotConsultants?.[i] ?? [] })),
+      slots: data.availableSlotsIso.map((iso, i) => ({ iso, label: data.availableSlots[i], consultants: data.slotConsultants?.[i] ?? [], consultantIds: data.slotConsultantIds?.[i] ?? [] })),
     };
   },
 

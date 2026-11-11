@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { api } from '../../services/api';
 import type { DepartmentRow } from '../../services/admin-types';
+import { emailProblem } from '../../services/geo';
 import { useAsyncList, messageOf } from '../../components/setup/useAsyncList';
-import { Card, Check, Confirm, Field, FormActions, LinkButton, ListState, matchesStatus, Modal, StatusBadge, Td, TextArea, TextInput, Th, Toolbar } from '../../components/setup/ui';
+import { Card, Check, Confirm, Field, FormModal, LinkButton, ListState, matchesStatus, StatusBadge, Td, TextArea, TextInput, Th, Toolbar } from '../../components/setup/ui';
 
 const DepartmentForm: React.FC<{ department: DepartmentRow | null; onDone: () => void; onCancel: () => void }> = ({ department, onDone, onCancel }) => {
   const [name, setName] = useState(department?.name ?? '');
@@ -30,19 +31,16 @@ const DepartmentForm: React.FC<{ department: DepartmentRow | null; onDone: () =>
   };
 
   return (
-    <Modal title={department ? 'Edit department' : 'Create department'} onClose={onCancel}>
-      <form onSubmit={submit} className="space-y-4">
-        <Field label="Name">{(id) => <TextInput id={id} value={name} onChange={(e) => setName(e.target.value)} required maxLength={120} />}</Field>
-        <Field label="Description">{(id) => <TextArea id={id} value={description} onChange={(e) => setDescription(e.target.value)} maxLength={500} />}</Field>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Field label="Location">{(id) => <TextInput id={id} value={location} onChange={(e) => setLocation(e.target.value)} maxLength={200} />}</Field>
-          <Field label="Contact">{(id) => <TextInput id={id} value={contact} onChange={(e) => setContact(e.target.value)} maxLength={120} />}</Field>
-        </div>
-        <Field label="Email">{(id) => <TextInput id={id} type="email" value={email} onChange={(e) => setEmail(e.target.value)} maxLength={254} />}</Field>
-        <Check label="Active" checked={isActive} onChange={setIsActive} />
-        <FormActions saving={saving} error={error} onCancel={onCancel} />
-      </form>
-    </Modal>
+    <FormModal title={department ? 'Edit department' : 'Create department'} onClose={onCancel} onSubmit={submit} saving={saving} error={error} size="lg" canSave={name.trim() !== '' && !emailProblem(email)} blockedReason={name.trim() === '' ? 'The name is required.' : emailProblem(email)}>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4 gap-y-3">
+        <Field label="Name" className="sm:col-span-2">{(id) => <TextInput id={id} value={name} onChange={(e) => setName(e.target.value)} maxLength={120} aria-invalid={name.trim() === ''} />}</Field>
+        <div className="flex items-end pb-1.5"><Check label="Active" checked={isActive} onChange={setIsActive} /></div>
+        <Field label="Location">{(id) => <TextInput id={id} value={location} onChange={(e) => setLocation(e.target.value)} maxLength={200} />}</Field>
+        <Field label="Contact">{(id) => <TextInput id={id} value={contact} onChange={(e) => setContact(e.target.value)} maxLength={120} />}</Field>
+        <Field label="Email" error={emailProblem(email)}>{(id) => <TextInput id={id} type="email" value={email} onChange={(e) => setEmail(e.target.value)} maxLength={254} aria-invalid={Boolean(emailProblem(email))} />}</Field>
+        <Field label="Description" className="sm:col-span-3">{(id) => <TextArea id={id} rows={2} value={description} onChange={(e) => setDescription(e.target.value)} maxLength={500} />}</Field>
+      </div>
+    </FormModal>
   );
 };
 

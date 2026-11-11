@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { api } from '../../services/api';
 import type { Grade } from '../../services/admin-types';
 import { useAsyncList, messageOf } from '../../components/setup/useAsyncList';
-import { Card, Check, Confirm, Field, FormActions, LinkButton, ListState, matchesStatus, Modal, StatusBadge, Td, TextInput, Th, Toolbar } from '../../components/setup/ui';
+import { Card, Check, Confirm, Field, FormModal, LinkButton, ListState, matchesStatus, StatusBadge, Td, TextInput, Th, Toolbar } from '../../components/setup/ui';
 
 const GradeForm: React.FC<{ grade: Grade | null; onDone: () => void; onCancel: () => void }> = ({ grade, onDone, onCancel }) => {
   const [code, setCode] = useState(grade?.code ?? '');
@@ -10,6 +10,8 @@ const GradeForm: React.FC<{ grade: Grade | null; onDone: () => void; onCancel: (
   const [isActive, setIsActive] = useState(grade?.isActive ?? true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  const codeProblem = code.trim() === '' ? 'The code is required.' : /^[A-Za-z0-9._-]+$/.test(code.trim()) ? '' : 'Use letters, numbers, dot, dash or underscore only.';
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -27,16 +29,15 @@ const GradeForm: React.FC<{ grade: Grade | null; onDone: () => void; onCancel: (
   };
 
   return (
-    <Modal title={grade ? 'Edit grade' : 'Create grade'} onClose={onCancel}>
-      <form onSubmit={submit} className="space-y-4">
-        <Field label="Code" hint="You choose the code, for example G15. It is shown in lists.">
-          {(id) => <TextInput id={id} value={code} onChange={(e) => setCode(e.target.value)} required maxLength={20} />}
+    <FormModal title={grade ? 'Edit grade' : 'Create grade'} onClose={onCancel} onSubmit={submit} saving={saving} error={error} size="sm" canSave={!codeProblem} blockedReason={codeProblem}>
+      <div className="space-y-3">
+        <Field label="Code" hint="You choose the code, for example G15." error={codeProblem}>
+          {(id) => <TextInput id={id} value={code} onChange={(e) => setCode(e.target.value)} maxLength={20} aria-invalid={Boolean(codeProblem)} />}
         </Field>
         <Field label="Name (optional)">{(id) => <TextInput id={id} value={name} onChange={(e) => setName(e.target.value)} maxLength={80} />}</Field>
         <Check label="Active" checked={isActive} onChange={setIsActive} />
-        <FormActions saving={saving} error={error} onCancel={onCancel} />
-      </form>
-    </Modal>
+      </div>
+    </FormModal>
   );
 };
 

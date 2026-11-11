@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { api } from '../../services/api';
 import type { EmployeeRow, RoleRow, UserRow } from '../../services/admin-types';
 import { useAsyncList, messageOf } from '../../components/setup/useAsyncList';
-import { Card, Check, Field, FormActions, LinkButton, ListState, matchesStatus, Modal, SelectInput, StatusBadge, Td, TextInput, Th, Toolbar } from '../../components/setup/ui';
+import { Card, Check, Field, FormModal, LinkButton, ListState, matchesStatus, SelectInput, StatusBadge, Td, TextInput, Th, Toolbar } from '../../components/setup/ui';
 
 const UserForm: React.FC<{ user: UserRow | null; roles: RoleRow[]; employees: EmployeeRow[]; onDone: () => void; onCancel: () => void }> = ({ user, roles, employees, onDone, onCancel }) => {
   // A user made before roles were editable has no role id yet; match it by its code.
@@ -16,6 +16,11 @@ const UserForm: React.FC<{ user: UserRow | null; roles: RoleRow[]; employees: Em
   const [isActive, setIsActive] = useState(user?.isActive ?? true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  const usernameProblem = user ? '' : username.trim().length < 3 ? 'The user name needs at least 3 characters.' : /^[A-Za-z0-9._@+-]+$/.test(username.trim()) ? '' : 'Use letters, numbers and . _ @ + - only (no spaces).';
+  const passwordProblem = password === '' ? (user ? '' : 'The password is required.') : password.length < 12 ? 'The password needs at least 12 characters.' : '';
+  const roleProblem = roleId === '' ? 'Choose a role.' : '';
+  const firstProblem = usernameProblem || passwordProblem || roleProblem;
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -38,15 +43,15 @@ const UserForm: React.FC<{ user: UserRow | null; roles: RoleRow[]; employees: Em
   const free = employees.filter((e) => e.isActive && (!e.user || e.id === user?.employee?.id));
 
   return (
-    <Modal title={user ? 'Edit user' : 'Create user'} onClose={onCancel}>
-      <form onSubmit={submit} className="space-y-4">
-        <Field label="User name" hint={user ? 'The user name cannot be changed.' : 'Letters, numbers and . _ @ + - (no spaces).'}>
-          {(id) => <TextInput id={id} value={username} onChange={(e) => setUsername(e.target.value)} required minLength={3} maxLength={100} readOnly={Boolean(user)} disabled={Boolean(user)} autoComplete="off" />}
+    <FormModal title={user ? 'Edit user' : 'Create user'} onClose={onCancel} onSubmit={submit} saving={saving} error={error} size="lg" canSave={!firstProblem} blockedReason={firstProblem}>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
+        <Field label="User name" hint={user ? 'The user name cannot be changed.' : undefined} error={usernameProblem}>
+          {(id) => <TextInput id={id} value={username} onChange={(e) => setUsername(e.target.value)} maxLength={100} readOnly={Boolean(user)} disabled={Boolean(user)} autoComplete="off" aria-invalid={Boolean(usernameProblem)} />}
         </Field>
-        <Field label="Password" hint={user ? 'Leave empty to keep the current password. A new password signs the user out everywhere.' : 'At least 12 characters.'}>
+        <Field label="Password" hint={user ? 'Leave empty to keep it. A new password signs the user out everywhere.' : 'At least 12 characters.'} error={passwordProblem}>
           {(id) => (
             <div className="flex gap-2">
-              <TextInput id={id} type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} required={!user} minLength={12} autoComplete="new-password" />
+              <TextInput id={id} type={showPassword ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" aria-invalid={Boolean(passwordProblem)} />
               <button type="button" onClick={() => setShowPassword((v) => !v)} aria-pressed={showPassword} className="px-3 rounded-lg bg-slate-800 text-xs text-slate-200 hover:bg-slate-700">
                 {showPassword ? 'Hide' : 'Show'}
               </button>
@@ -54,9 +59,9 @@ const UserForm: React.FC<{ user: UserRow | null; roles: RoleRow[]; employees: Em
           )}
         </Field>
         <Field label="Name (optional)">{(id) => <TextInput id={id} value={name} onChange={(e) => setName(e.target.value)} maxLength={120} />}</Field>
-        <Field label="Role">
+        <Field label="Role" error={roleProblem}>
           {(id) => (
-            <SelectInput id={id} value={roleId} onChange={(e) => setRoleId(e.target.value)} required>
+            <SelectInput id={id} value={roleId} onChange={(e) => setRoleId(e.target.value)} aria-invalid={Boolean(roleProblem)}>
               <option value="" disabled>Select role…</option>
               {roles.filter((r) => r.isActive || r.id === roleId).map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
             </SelectInput>
@@ -70,10 +75,11 @@ const UserForm: React.FC<{ user: UserRow | null; roles: RoleRow[]; employees: Em
             </SelectInput>
           )}
         </Field>
-        <Check label="Active user" checked={isActive} onChange={setIsActive} />
-        <FormActions saving={saving} error={error} onCancel={onCancel} />
-      </form>
-    </Modal>
+        <div className="flex items-end pb-1.5">
+          <Check label="Active user" checked={isActive} onChange={setIsActive} />
+        </div>
+      </div>
+    </FormModal>
   );
 };
 

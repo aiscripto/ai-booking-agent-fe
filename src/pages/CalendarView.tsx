@@ -1,35 +1,47 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { ChevronLeft, ChevronRight, Calendar as CalendarIcon } from 'lucide-react';
 import { api } from '../services/api';
 import type { Appointment, AvailableSlots } from '../services/api';
 import { useVocabulary } from '../services/vocabulary';
 import { useConsultants } from '../services/consultants';
-import { formatDateLong, formatDateTime, timeKey, todayKey, weekdayOf, zonedTimeToUtc } from '../services/time';
-import { Plus, Trash2, Calendar as CalendarIcon, User, Phone, Mail, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { formatDateLong, formatDateTime, formatTime, timeKey, todayKey, weekdayOf, zonedTimeToUtc } from '../services/time';
+import { emailProblem, phoneProblem } from '../services/geo';
+import { Button, Field, FormModal, Modal, TextInput } from '../components/setup/ui';
 
+const errorText = (err: unknown, fallback: string): string => (err instanceof Error && err.message ? err.message : fallback);
+
+/** One tile: a time, for nobody in particular (one calendar) or for one consultant. */
+interface Cell {
+  time: string; // 'HH:MM' in the business's zone
+  consultantId: string | null;
+  appointment: Appointment | null;
+  free: boolean;
+}
+
+type Scope = 'all' | 'none' | string; // 'all' consultants, 'none' = older bookings, or one consultant id
+
+/**
+ * The day as tiles: green = free (click to book), red = booked (click for the details and to cancel),
+ * grey = not available. Every tile also says so in words, so colour is never the only signal.
+ * Everything shown comes from the server: the appointments, and the free times it works out.
+ */
 export const CalendarView: React.FC = () => {
-  // All times are shown and booked in the business's time zone (times are stored in UTC).
-  const { timeZone, businessHours, error: settingsError } = useVocabulary();
+  const { vocabulary, timeZone, businessHours, error: settingsError } = useVocabulary();
+  const consultantInfo = useConsultants();
 
-  const [pickedDate, setPickedDate] = useState<string>('');
+  const [pickedDate, setPickedDate] = useState('');
   const selectedDate = pickedDate || todayKey(timeZone);
 
-  // With consultants the day is shown for ONE consultant at a time (their bookings and their free times).
-  // "none" shows older bookings that were made before consultants were set up.
-  const consultantInfo = useConsultants();
-  const [consultantChoice, setConsultantChoice] = useState('');
-  const consultantId = consultantInfo.active ? consultantChoice || consultantInfo.consultants[0]?.id || '' : '';
+  const [scopeChoice, setScopeChoice] = useState<Scope>('all');
+  const scope: Scope = consultantInfo.active ? scopeChoice : 'all';
+
+  const [filter, setFilter] = useState<'all' | 'free' | 'booked'>('all');
   const [allAppointments, setAllAppointments] = useState<Appointment[]>([]);
-  const appointments = consultantInfo.active
-    ? allAppointments.filter((a) => (consultantId === 'none' ? !a.employeeId : a.employeeId === consultantId))
-    : allAppointments;
-  const unassignedCount = consultantInfo.active ? allAppointments.filter((a) => !a.employeeId).length : 0;
-  // Which times can really be booked (appointments plus Google Calendar), from the server.
   const [availability, setAvailability] = useState<AvailableSlots | null>(null);
   const [availabilityError, setAvailabilityError] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // Mini-Calendar State (the month being shown follows the selected date)
   const [currentMonth, setCurrentMonth] = useState<Date>(() => {
     const [y, m] = todayKey(Intl.DateTimeFormat().resolvedOptions().timeZone).split('-').map(Number);
     return new Date(y, m - 1, 1);
@@ -39,195 +51,178 @@ export const CalendarView: React.FC = () => {
     setCurrentMonth(new Date(y, m - 1, 1));
   }, [selectedDate]);
 
-  // Modal State
-  const [showModal, setShowModal] = useState(false);
-  const [modalTime, setModalTime] = useState('');
-  const [customerName, setCustomerName] = useState('');
-  const [customerPhone, setCustomerPhone] = useState('');
-  const [customerEmail, setCustomerEmail] = useState('');
-  const [bookingError, setBookingError] = useState('');
-  const [bookingLoading, setBookingLoading] = useState(false);
+  const [booking, setBooking] = useState<{ time: string; consultantId: string | null } | null>(null);
+  const [details, setDetails] = useState<Appointment | null>(null);
 
-  // Filter State: 'all' | 'available' | 'booked'
-  const [filter, setFilter] = useState<'all' | 'available' | 'booked'>('all');
+  const consultantsReady = !consultantInfo.loading;
 
-  // Fetch the day's appointments and the day's free times
-  const fetchDay = async () => {
+  const fetchDay = useCallback(async () => {
     setLoading(true);
     setError('');
     setAvailabilityError('');
+    const wantsFree = scope !== 'none'; // older bookings (no consultant) have no free times to offer
     const [appointmentResult, availabilityResult] = await Promise.allSettled([
       api.getAppointments(selectedDate),
-      // Older bookings (no consultant) have no free times to offer.
-      consultantId === 'none' ? Promise.resolve<AvailableSlots>({ closed: false, unavailable: false, message: '', slots: [] }) : api.getAvailableSlots(selectedDate, { employeeId: consultantId || undefined }),
+      wantsFree
+        ? api.getAvailableSlots(selectedDate, scope !== 'all' ? { employeeId: scope } : {})
+        : Promise.resolve<AvailableSlots>({ closed: false, unavailable: false, message: '', slots: [] }),
     ]);
     if (appointmentResult.status === 'fulfilled') {
       setAllAppointments(appointmentResult.value);
     } else {
       setAllAppointments([]);
-      const reason: unknown = appointmentResult.reason;
-      setError(reason instanceof Error && reason.message ? reason.message : 'Failed to retrieve appointments.');
+      setError(errorText(appointmentResult.reason, 'Failed to retrieve appointments.'));
     }
     if (availabilityResult.status === 'fulfilled') {
       setAvailability(availabilityResult.value);
     } else {
       setAvailability(null);
-      const reason: unknown = availabilityResult.reason;
-      setAvailabilityError(reason instanceof Error && reason.message ? reason.message : 'Could not check which times are free.');
+      setAvailabilityError(errorText(availabilityResult.reason, 'Could not check which times are free.'));
     }
     setLoading(false);
-  };
+  }, [selectedDate, scope]);
 
-  const consultantsReady = !consultantInfo.loading;
   useEffect(() => {
     if (consultantsReady) fetchDay();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDate, consultantId, consultantsReady]);
+  }, [fetchDay, consultantsReady]);
 
-  // Find the appointment that starts at a specific slot time on the selected date
-  const getAppointmentForSlot = (slotTime: string) =>
-    appointments.find((appt) => timeKey(appt.appointmentDateTime, timeZone) === slotTime);
-
-  // Times the server says can be booked right now.
-  const freeTimes = new Set((availability?.slots ?? []).map((s) => timeKey(s.iso, timeZone)));
   const canCheckFreeTimes = availability !== null && !availability.unavailable;
+  const unassignedCount = consultantInfo.active ? allAppointments.filter((a) => !a.employeeId).length : 0;
 
-  // 30-minute rows across the business's opening hours for that weekday (from the server).
-  // Nothing on a closed day; a break between two ranges leaves a gap.
-  const timeSlots: string[] = [];
-  for (const range of businessHours?.weekly[weekdayOf(selectedDate)] ?? []) {
-    const [startH, startM] = range.start.split(':').map(Number);
-    const [endH, endM] = range.end.split(':').map(Number);
-    for (let minutes = startH * 60 + startM; minutes + 30 <= endH * 60 + endM; minutes += 30) {
-      const label = `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
-      if (!timeSlots.includes(label)) timeSlots.push(label);
+  // The rows: 30-minute times across the opening hours of that weekday. A booking outside them is added, never hidden.
+  const times = useMemo(() => {
+    const list: string[] = [];
+    for (const range of businessHours?.weekly[weekdayOf(selectedDate)] ?? []) {
+      const [startH, startM] = range.start.split(':').map(Number);
+      const [endH, endM] = range.end.split(':').map(Number);
+      for (let minutes = startH * 60 + startM; minutes + 30 <= endH * 60 + endM; minutes += 30) {
+        const label = `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+        if (!list.includes(label)) list.push(label);
+      }
     }
-  }
-
-  // Add any booked appointment that falls outside the opening hours, so it is never hidden
-  appointments.forEach((appt) => {
-    const slotStr = timeKey(appt.appointmentDateTime, timeZone);
-    if (!timeSlots.includes(slotStr)) {
-      timeSlots.push(slotStr);
+    for (const appt of allAppointments) {
+      const label = timeKey(appt.appointmentDateTime, timeZone);
+      if (!list.includes(label)) list.push(label);
     }
-  });
+    return list.sort();
+  }, [businessHours, selectedDate, allAppointments, timeZone]);
 
-  // Sort time slots chronologically
-  timeSlots.sort((a, b) => {
-    const [aHour, aMin] = a.split(':').map(Number);
-    const [bHour, bMin] = b.split(':').map(Number);
-    return (aHour * 60 + aMin) - (bHour * 60 + bMin);
-  });
-
-  // Filter slots based on state
-  const filteredSlots = timeSlots.filter((slot) => {
-    const appointment = getAppointmentForSlot(slot);
-    if (filter === 'available') {
-      return !appointment && freeTimes.has(slot);
+  // Who is free when: time -> set of consultant ids (empty set for one calendar).
+  const freeBy = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const slot of availability?.slots ?? []) {
+      map.set(timeKey(slot.iso, timeZone), new Set(slot.consultantIds));
     }
-    if (filter === 'booked') {
-      return !!appointment;
-    }
-    return true;
-  });
+    return map;
+  }, [availability, timeZone]);
 
-  // Helper: Get days list in currentMonth
-  const getDaysInMonth = (monthDate: Date) => {
+  const columns = useMemo(() => {
+    if (!consultantInfo.active) return [{ id: null as string | null, name: '' }];
+    if (scope === 'all') return consultantInfo.consultants.map((c) => ({ id: c.id as string | null, name: c.fullName }));
+    if (scope === 'none') return [{ id: null, name: 'Older bookings' }];
+    return consultantInfo.consultants.filter((c) => c.id === scope).map((c) => ({ id: c.id as string | null, name: c.fullName }));
+  }, [consultantInfo.active, consultantInfo.consultants, scope]);
+
+  const cellFor = (time: string, consultantId: string | null): Cell => {
+    const appointment =
+      allAppointments.find(
+        (a) => timeKey(a.appointmentDateTime, timeZone) === time && (consultantInfo.active ? (a.employeeId ?? null) === consultantId : true),
+      ) ?? null;
+    const free = !appointment && canCheckFreeTimes && freeBy.has(time) && (consultantId === null || freeBy.get(time)?.has(consultantId) === true);
+    return { time, consultantId, appointment, free };
+  };
+
+  const stats = useMemo(() => {
+    let free = 0;
+    let booked = 0;
+    for (const column of columns) {
+      for (const time of times) {
+        const c = cellFor(time, column.id);
+        if (c.appointment) booked += 1;
+        else if (c.free) free += 1;
+      }
+    }
+    return { free, booked };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [columns, times, allAppointments, freeBy, canCheckFreeTimes]);
+
+  const timeLabel = (time: string) => formatTime(zonedTimeToUtc(selectedDate, time, timeZone).toISOString(), timeZone);
+
+  // ── Mini calendar ──────────────────────────────────────────────────────────
+  const daysInMonth = (monthDate: Date) => {
     const year = monthDate.getFullYear();
     const month = monthDate.getMonth();
-    const firstDay = new Date(year, month, 1).getDay(); // Day of week (0 = Sunday)
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-
-    // Align grid so 0 represents Monday, 6 represents Sunday
-    const startDayIndex = firstDay === 0 ? 6 : firstDay - 1;
-
-    const days = [];
-    // Padding for empty blocks before start of month
-    for (let i = 0; i < startDayIndex; i++) {
-      days.push(null);
-    }
-    // Date objects for actual month days
-    for (let d = 1; d <= daysInMonth; d++) {
-      days.push(new Date(year, month, d));
-    }
+    const firstDay = new Date(year, month, 1).getDay();
+    const lead = firstDay === 0 ? 6 : firstDay - 1; // the grid starts on Monday
+    const days: Array<Date | null> = Array.from({ length: lead }, () => null);
+    for (let d = 1; d <= new Date(year, month + 1, 0).getDate(); d++) days.push(new Date(year, month, d));
     return days;
   };
-
-  const handlePrevMonth = () => {
-    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1));
-  };
-
-  const handleNextMonth = () => {
-    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1));
-  };
-
-  const selectDay = (day: Date) => {
-    const yyyy = day.getFullYear();
-    const mm = String(day.getMonth() + 1).padStart(2, '0');
-    const dd = String(day.getDate()).padStart(2, '0');
-    setPickedDate(`${yyyy}-${mm}-${dd}`);
-  };
-
-  const handleOpenBookModal = (slotTime: string) => {
-    setModalTime(slotTime);
-    setCustomerName('');
-    setCustomerPhone('');
-    setCustomerEmail('');
-    setBookingError('');
-    setShowModal(true);
-  };
-
-  const handleBookAppointment = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setBookingError('');
-    setBookingLoading(true);
-
-    try {
-      // The clicked time is in the business's zone, so convert it to the right UTC instant.
-      const dateTimeIso = zonedTimeToUtc(selectedDate, modalTime, timeZone).toISOString();
-      await api.createAppointment({
-        dateTime: dateTimeIso,
-        customerName,
-        customerPhone,
-        customerEmail: customerEmail || null,
-        employeeId: consultantInfo.active && consultantId !== 'none' ? consultantId : undefined,
-      });
-
-      setShowModal(false);
-      fetchDay();
-    } catch (err: unknown) {
-      setBookingError(err instanceof Error && err.message ? err.message : 'Failed to book appointment.');
-      fetchDay(); // the time may have been taken meanwhile
-    } finally {
-      setBookingLoading(false);
-    }
-  };
-
-  const handleCancelAppointment = async (id: string, name: string) => {
-    if (!confirm(`Are you sure you want to cancel the appointment for ${name}?`)) {
-      return;
-    }
-
-    try {
-      await api.cancelAppointment(id);
-      fetchDay();
-    } catch (err: unknown) {
-      setError(`Cancellation failed: ${err instanceof Error ? err.message : 'unknown error'}`);
-    }
-  };
-
+  const selectDay = (day: Date) =>
+    setPickedDate(`${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`);
   const monthLabel = currentMonth.toLocaleString('en-US', { month: 'long', year: 'numeric' });
   const dayNames = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
+  const consultantName = (id: string | null) => consultantInfo.consultants.find((c) => c.id === id)?.fullName ?? '';
+
+  // ── One tile ───────────────────────────────────────────────────────────────
+  const Tile: React.FC<{ cell: Cell; compact?: boolean }> = ({ cell, compact }) => {
+    const { appointment, free, time } = cell;
+    if (appointment) {
+      return (
+        <button
+          type="button"
+          onClick={() => setDetails(appointment)}
+          className="w-full text-left rounded-lg border border-rose-500/50 bg-rose-500/15 hover:bg-rose-500/25 px-2.5 py-1.5 transition-colors"
+          aria-label={`${timeLabel(time)}, booked: ${appointment.customerName}. Open the details.`}
+        >
+          <span className="flex items-center justify-between gap-2 text-[11px] font-bold text-rose-200">
+            <span>{timeLabel(time)}</span>
+            <span className="uppercase tracking-wide">Booked</span>
+          </span>
+          <span className="block truncate text-sm font-semibold text-slate-100">{appointment.customerName}</span>
+          {!compact && appointment.category && <span className="block truncate text-[11px] text-rose-200/80">{appointment.category.name}</span>}
+        </button>
+      );
+    }
+    if (free) {
+      return (
+        <button
+          type="button"
+          onClick={() => setBooking({ time, consultantId: cell.consultantId })}
+          className="w-full text-left rounded-lg border border-emerald-500/50 bg-emerald-500/10 hover:bg-emerald-500/20 px-2.5 py-1.5 transition-colors"
+          aria-label={`${timeLabel(time)}, free. Book this time.`}
+        >
+          <span className="flex items-center justify-between gap-2 text-[11px] font-bold text-emerald-200">
+            <span>{timeLabel(time)}</span>
+            <span className="uppercase tracking-wide">Free</span>
+          </span>
+          <span className="block text-sm font-semibold text-emerald-100">Book</span>
+        </button>
+      );
+    }
+    return (
+      <div
+        className="w-full rounded-lg border border-slate-800 bg-slate-950/40 px-2.5 py-1.5 text-slate-400"
+        title={canCheckFreeTimes ? 'Not available: past, outside the working hours, on leave, or blocked.' : 'Free times could not be read.'}
+      >
+        <span className="flex items-center justify-between gap-2 text-[11px] font-bold">
+          <span>{timeLabel(time)}</span>
+          <span className="uppercase tracking-wide">{canCheckFreeTimes ? 'Not available' : 'Unknown'}</span>
+        </span>
+        <span className="block text-sm">&nbsp;</span>
+      </div>
+    );
+  };
+
+  const singleColumn = columns.length === 1;
+
   return (
-    <div className="space-y-6 font-sans">
-      {/* Errors notifications */}
-      {(error || settingsError) && (
-        <div role="alert" className="bg-rose-500/10 border border-rose-500/20 text-rose-400 p-4 rounded-xl text-sm font-semibold flex items-center justify-between gap-4">
-          <span>{error || settingsError}</span>
-          <button onClick={fetchDay} className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-100 text-xs font-semibold">
-            Try again
-          </button>
+    <div className="space-y-4 font-sans">
+      {(error || settingsError || consultantInfo.error) && (
+        <div role="alert" className="bg-rose-500/10 border border-rose-500/20 text-rose-300 p-3 rounded-xl text-sm font-semibold flex items-center justify-between gap-4">
+          <span>{error || settingsError || consultantInfo.error}</span>
+          <Button kind="secondary" onClick={fetchDay}>Try again</Button>
         </div>
       )}
       {availabilityError && (
@@ -241,353 +236,294 @@ export const CalendarView: React.FC = () => {
         </div>
       )}
 
-      {/* Grid Layout: Mini Calendar Panel (left) + Day Timeline (right) */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 items-start">
-        {/* Left Column: Interactive Date Picker Card */}
-        <div className="lg:col-span-1 bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg space-y-4">
-          <div className="flex items-center justify-between pb-2 border-b border-slate-800/80">
-            <h3 className="text-sm font-bold text-slate-200 flex items-center space-x-2">
-              <CalendarIcon className="w-4 h-4 text-sky-400" />
-              <span>DatePicker</span>
-              {loading && <span className="text-xs text-sky-400 font-normal animate-pulse">Loading...</span>}
-            </h3>
-
-            {/* Native input element fallback */}
+      <div className="grid grid-cols-1 lg:grid-cols-[17rem_1fr] gap-5 items-start">
+        {/* Left: the date */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="text-sm font-bold text-slate-200 flex items-center gap-2">
+              <CalendarIcon className="w-4 h-4 text-sky-400" aria-hidden="true" /> Date
+            </h2>
             <input
               type="date"
               value={selectedDate}
               onChange={(e) => e.target.value && setPickedDate(e.target.value)}
               aria-label="Choose a date"
-              className="bg-slate-950 border border-slate-800 rounded px-1.5 py-0.5 text-[10px] text-slate-350 focus:outline-none"
+              className="bg-slate-950 border border-slate-800 rounded px-1.5 py-0.5 text-[11px] text-slate-200"
             />
           </div>
-
-          {/* Custom Mini Calendar UI */}
-          <div className="space-y-4">
-            {/* Header Month / Nav Buttons */}
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-extrabold text-slate-300">{monthLabel}</span>
-              <div className="flex items-center space-x-1">
-                <button
-                  onClick={handlePrevMonth}
-                  className="p-1 hover:bg-slate-850 text-slate-400 hover:text-slate-200 rounded transition-colors"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={handleNextMonth}
-                  className="p-1 hover:bg-slate-850 text-slate-400 hover:text-slate-200 rounded transition-colors"
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            {/* Days headers M T W T F S S */}
-            <div className="grid grid-cols-7 gap-1 text-center">
-              {dayNames.map((name, i) => (
-                <span key={i} className="text-[10px] font-bold text-slate-500 uppercase">
-                  {name}
-                </span>
-              ))}
-            </div>
-
-            {/* Calendar grid cells */}
-            <div className="grid grid-cols-7 gap-1 text-center">
-              {getDaysInMonth(currentMonth).map((day, index) => {
-                if (!day) {
-                  return <div key={index} className="h-7 w-7" />; // empty padding block
-                }
-
-                const dayString = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
-                const isSelected = dayString === selectedDate;
-                const isToday = dayString === todayKey(timeZone);
-
-                return (
-                  <button
-                    key={index}
-                    onClick={() => selectDay(day)}
-                    className={`h-7 w-7 text-[11px] font-semibold rounded-lg flex items-center justify-center transition-all ${
-                      isSelected
-                        ? 'bg-sky-500 text-slate-950 font-bold shadow-md shadow-sky-500/10'
-                        : isToday
-                        ? 'border border-sky-500/40 text-sky-400 font-bold'
-                        : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-                    }`}
-                  >
-                    {day.getDate()}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Selected Date Summary details */}
-          <div className="bg-slate-950/60 rounded-xl p-3 border border-slate-850 text-center">
-            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Browsing Date</span>
-            <p className="text-xs font-semibold text-slate-300 mt-1">
-              {formatDateLong(selectedDate)}
-            </p>
-          </div>
-        </div>
-
-        {/* Right Column: Detailed vertical slots Timeline view */}
-        <div className="lg:col-span-3 bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-lg space-y-5">
-          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800/80 pb-3.5">
-            <div>
-              <h3 className="text-md font-bold text-slate-200">Daily Appointment Slots</h3>
-              <p className="text-xs text-slate-500 mt-0.5">Showing scheduled times and open reservations.</p>
-            </div>
-            <span className="text-xs bg-slate-950 border border-slate-800 rounded px-2.5 py-1 text-slate-400 font-semibold uppercase tracking-wider">
-              {selectedDate}
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-extrabold text-slate-300">{monthLabel}</span>
+            <span className="flex gap-1">
+              <button type="button" aria-label="Previous month" onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1))} className="p-1 text-slate-400 hover:text-slate-100 rounded">
+                <ChevronLeft className="w-4 h-4" aria-hidden="true" />
+              </button>
+              <button type="button" aria-label="Next month" onClick={() => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1))} className="p-1 text-slate-400 hover:text-slate-100 rounded">
+                <ChevronRight className="w-4 h-4" aria-hidden="true" />
+              </button>
             </span>
           </div>
+          <div className="grid grid-cols-7 gap-1 text-center">
+            {dayNames.map((name, i) => (
+              <span key={i} className="text-[10px] font-bold text-slate-400 uppercase">{name}</span>
+            ))}
+            {daysInMonth(currentMonth).map((day, index) => {
+              if (!day) return <div key={index} className="h-7 w-7" />;
+              const key = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
+              const isSelected = key === selectedDate;
+              const isToday = key === todayKey(timeZone);
+              return (
+                <button
+                  type="button"
+                  key={index}
+                  onClick={() => selectDay(day)}
+                  aria-label={formatDateLong(key)}
+                  aria-current={isSelected ? 'date' : undefined}
+                  className={`h-7 w-7 text-[11px] font-semibold rounded-lg flex items-center justify-center ${
+                    isSelected ? 'bg-sky-500 text-slate-950 font-bold' : isToday ? 'border border-sky-500/50 text-sky-300 font-bold' : 'text-slate-300 hover:bg-slate-800'
+                  }`}
+                >
+                  {day.getDate()}
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-xs text-slate-300 text-center pt-1 border-t border-slate-800">{formatDateLong(selectedDate)}</p>
+        </div>
 
-          {consultantInfo.active && (
-            <div className="flex flex-wrap items-center gap-3">
-              <label htmlFor="calendar-consultant" className="text-xs font-bold uppercase tracking-wider text-slate-400">Consultant</label>
-              <select
-                id="calendar-consultant"
-                value={consultantId}
-                onChange={(e) => setConsultantChoice(e.target.value)}
-                className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-sm text-slate-100"
-              >
-                {consultantInfo.consultants.map((c) => <option key={c.id} value={c.id}>{c.fullName}{c.title ? ` (${c.title})` : ''}</option>)}
-                {unassignedCount > 0 && <option value="none">Older bookings (no consultant)</option>}
-              </select>
-              {unassignedCount > 0 && consultantId !== 'none' && (
-                <span className="text-xs text-amber-300">{unassignedCount} older booking(s) today have no consultant; choose "Older bookings" to see them.</span>
-              )}
+        {/* Right: the day as tiles */}
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3 min-w-0">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <h2 className="text-base font-bold text-slate-100 mr-auto">
+              {formatDateLong(selectedDate)}
+              {loading && <span className="ml-3 text-xs font-normal text-sky-300 animate-pulse">Loading…</span>}
+            </h2>
+            {consultantInfo.active && (
+              <div className="flex items-center gap-2">
+                <label htmlFor="calendar-scope" className="text-[11px] font-bold uppercase tracking-wider text-slate-300">Consultant</label>
+                <select
+                  id="calendar-scope"
+                  value={scope}
+                  onChange={(e) => setScopeChoice(e.target.value)}
+                  className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-100"
+                >
+                  <option value="all">All consultants</option>
+                  {consultantInfo.consultants.map((c) => <option key={c.id} value={c.id}>{c.fullName}{c.title ? ` (${c.title})` : ''}</option>)}
+                  {unassignedCount > 0 && <option value="none">Older bookings (no consultant)</option>}
+                </select>
+              </div>
+            )}
+            {singleColumn && (
+              <div role="tablist" aria-label="Show" className="flex bg-slate-950 p-1 rounded-lg border border-slate-800">
+                {([['all', 'All'], ['free', 'Free'], ['booked', 'Booked']] as const).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    role="tab"
+                    aria-selected={filter === id}
+                    onClick={() => setFilter(id)}
+                    className={`px-3 py-1 rounded-md text-xs font-bold ${filter === id ? 'bg-slate-700 text-white' : 'text-slate-300 hover:text-white'}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Legend and real counts */}
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-slate-300">
+            <span className="inline-flex items-center gap-1.5"><span className="w-3 h-3 rounded border border-emerald-500/60 bg-emerald-500/20" aria-hidden="true" /> Free: {stats.free}</span>
+            <span className="inline-flex items-center gap-1.5"><span className="w-3 h-3 rounded border border-rose-500/60 bg-rose-500/25" aria-hidden="true" /> Booked: {stats.booked}</span>
+            <span className="inline-flex items-center gap-1.5"><span className="w-3 h-3 rounded border border-slate-700 bg-slate-950" aria-hidden="true" /> Not available</span>
+            {unassignedCount > 0 && scope !== 'none' && (
+              <span className="text-amber-300">{unassignedCount} older booking(s) have no consultant. Choose "Older bookings" to see them.</span>
+            )}
+          </div>
+
+          {times.length === 0 ? (
+            <p className="py-16 text-center text-sm text-slate-300">
+              {availability?.closed || (businessHours && !businessHours.weekly[weekdayOf(selectedDate)]?.length) ? 'The business is closed on this date.' : 'There are no times to show for this date.'}
+            </p>
+          ) : singleColumn ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6 gap-2">
+              {times
+                .map((time) => cellFor(time, columns[0].id))
+                .filter((c) => (filter === 'free' ? c.free : filter === 'booked' ? Boolean(c.appointment) : true))
+                .map((c) => <Tile key={c.time} cell={c} />)}
+            </div>
+          ) : (
+            <div className="overflow-auto max-h-[60vh] rounded-lg border border-slate-800">
+              <div className="grid gap-1.5 p-2 min-w-max" style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(9.5rem, 1fr))` }}>
+                {columns.map((column) => (
+                  <div key={column.id ?? 'none'} className="sticky top-0 z-10 bg-slate-900 pb-1 text-xs font-bold text-slate-100 truncate">
+                    {column.name}
+                  </div>
+                ))}
+                {times.map((time) =>
+                  columns.map((column) => <Tile key={`${time}-${column.id}`} cell={cellFor(time, column.id)} compact />),
+                )}
+              </div>
             </div>
           )}
-
-          {/* Filter Tabs */}
-          <div className="flex bg-slate-950/80 p-1 rounded-xl border border-slate-850 max-w-sm animate-fade-in">
-            <button
-              onClick={() => setFilter('all')}
-              className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all ${
-                filter === 'all'
-                  ? 'bg-slate-800 text-sky-400 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-350'
-              }`}
-            >
-              All Slots
-            </button>
-            <button
-              onClick={() => setFilter('available')}
-              className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all ${
-                filter === 'available'
-                  ? 'bg-slate-800 text-emerald-400 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-355'
-              }`}
-            >
-              Available
-            </button>
-            <button
-              onClick={() => setFilter('booked')}
-              className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all ${
-                filter === 'booked'
-                  ? 'bg-slate-800 text-cyan-400 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-355'
-              }`}
-            >
-              Booked
-            </button>
-          </div>
-
-          <div className="divide-y divide-slate-850 max-h-[600px] overflow-y-auto pr-2">
-            {filteredSlots.length === 0 ? (
-              <div className="text-center py-16 space-y-2 animate-fade-in">
-                <p className="text-sm text-slate-500 font-bold">
-                  {filter === 'booked' 
-                    ? 'No booked appointments scheduled for this date.' 
-                    : availability?.closed
-                      ? 'The business is closed on this date.'
-                    : !canCheckFreeTimes
-                      ? 'Free times cannot be shown right now.'
-                      : 'No free times for this date.'}
-                </p>
-                <p className="text-xs text-slate-600">Select another date or adjust the filter.</p>
-              </div>
-            ) : (
-              filteredSlots.map((slot) => {
-                const appointment = getAppointmentForSlot(slot);
-
-                return (
-                <div key={slot} className="flex items-center justify-between py-4 first:pt-0 last:pb-0">
-                  {/* Left Column: Time Label */}
-                  <div className="w-20 flex-shrink-0">
-                    <span className="text-xs font-bold text-slate-500">{slot}</span>
-                  </div>
-
-                  {/* Right Column: Appointment Status Card / Reserve Action */}
-                  <div className="flex-1 ml-4">
-                    {appointment ? (
-                      <div className="flex items-center justify-between bg-gradient-to-r from-sky-950/30 to-cyan-950/10 border border-sky-900/40 rounded-xl px-4 py-3 shadow-sm hover:border-sky-700/50 transition-all">
-                        <div className="space-y-1">
-                          <p className="text-sm font-bold text-slate-100 flex items-center">
-                            <span className="bg-sky-400 text-slate-950 px-2 py-0.5 rounded text-[10px] font-extrabold uppercase mr-3">
-                              Booked
-                            </span>
-                            {appointment.customerName}
-                          </p>
-                          <p className="text-xs text-slate-400 flex flex-wrap gap-x-4 mt-1">
-                            <span className="inline-flex items-center">
-                              <Phone className="w-3.5 h-3.5 mr-1.5 text-slate-500" />
-                              {appointment.customerPhone}
-                            </span>
-                            {appointment.customerEmail && (
-                              <span className="inline-flex items-center">
-                                <Mail className="w-3.5 h-3.5 mr-1.5 text-slate-500" />
-                                {appointment.customerEmail}
-                              </span>
-                            )}
-                          </p>
-                          {appointment.googleEventId && (
-                            <p className="text-[10px] font-mono text-emerald-400/90 mt-1">
-                              Google Sync ID: {appointment.googleEventId}
-                            </p>
-                          )}
-                          <p className="text-[10px] text-slate-500 mt-1">
-                            Booked at: {formatDateTime(appointment.createdAt, timeZone)}
-                          </p>
-                        </div>
-                        <button
-                          onClick={() => handleCancelAppointment(appointment.id, appointment.customerName)}
-                          className="p-2 text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
-                          title="Cancel Appointment"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    ) : (
-                      freeTimes.has(slot) && canCheckFreeTimes ? (
-                      <div className="flex items-center justify-between bg-slate-950/30 hover:bg-slate-950/60 border border-dashed border-slate-800/80 rounded-xl px-4 py-3 transition-all">
-                        <span className="text-xs text-emerald-400 font-semibold tracking-wide uppercase">Free</span>
-                        <button
-                          onClick={() => handleOpenBookModal(slot)}
-                          className="flex items-center space-x-1 px-3 py-1.5 bg-slate-900 hover:bg-slate-850 text-sky-400 hover:text-sky-300 font-bold text-xs rounded-lg border border-slate-800/80 transition-colors"
-                        >
-                          <Plus className="w-3.5 h-3.5" aria-hidden="true" />
-                          <span>Reserve</span>
-                        </button>
-                      </div>
-                      ) : (
-                      <div className="flex items-center justify-between bg-slate-950/20 border border-slate-800/50 rounded-xl px-4 py-3">
-                        <span className="text-xs text-slate-500 font-semibold tracking-wide uppercase">
-                          {canCheckFreeTimes ? 'Not available' : 'Unknown'}
-                        </span>
-                        <span className="text-[11px] text-slate-600">
-                          {canCheckFreeTimes ? 'Past, blocked in the calendar, or overlaps a booking' : 'Free times could not be read'}
-                        </span>
-                      </div>
-                      )
-                    )}
-                  </div>
-                </div>
-              );
-            })
-          )}
-          </div>
         </div>
       </div>
 
-      {/* Booking Form Modal */}
-      {showModal && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md shadow-2xl relative">
-            <div className="flex items-center justify-between p-6 border-b border-slate-850">
-              <div>
-                <h3 className="text-lg font-bold text-slate-100">Schedule Slot</h3>
-                <p className="text-xs text-slate-400 mt-1">
-                  Booking for {selectedDate} at {modalTime}
-                </p>
-              </div>
-              <button
-                onClick={() => setShowModal(false)}
-                className="p-1.5 text-slate-500 hover:text-slate-350 hover:bg-slate-850 rounded-lg transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+      {booking && (
+        <BookDialog
+          label={vocabulary.customerLabel}
+          when={`${formatDateLong(selectedDate)}, ${timeLabel(booking.time)}`}
+          withWhom={booking.consultantId ? consultantName(booking.consultantId) : ''}
+          onClose={() => setBooking(null)}
+          onSave={async (input) => {
+            await api.createAppointment({
+              dateTime: zonedTimeToUtc(selectedDate, booking.time, timeZone).toISOString(),
+              ...input,
+              employeeId: consultantInfo.active && booking.consultantId ? booking.consultantId : undefined,
+            });
+            setBooking(null);
+            await fetchDay();
+          }}
+          onFailed={fetchDay}
+        />
+      )}
 
-            <form onSubmit={handleBookAppointment} className="p-6 space-y-4">
-              {bookingError && (
-                <div className="bg-rose-500/10 border border-rose-500/20 text-rose-400 p-3.5 rounded-xl text-xs font-semibold leading-relaxed">
-                  {bookingError}
-                </div>
-              )}
-
-              <div className="space-y-2">
-                <label className="text-[11px] text-slate-400 font-bold uppercase tracking-wider">Patient Name</label>
-                <div className="relative">
-                  <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-500">
-                    <User className="w-4 h-4" />
-                  </span>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Tariq Mahmood"
-                    value={customerName}
-                    onChange={(e) => setCustomerName(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 placeholder-slate-600 text-sm focus:outline-none focus:border-sky-500/50"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-[11px] text-slate-400 font-bold uppercase tracking-wider">Phone Number</label>
-                <div className="relative">
-                  <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-500">
-                    <Phone className="w-4 h-4" />
-                  </span>
-                  <input
-                    type="tel"
-                    required
-                    placeholder="+923221414831"
-                    value={customerPhone}
-                    onChange={(e) => setCustomerPhone(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 placeholder-slate-600 text-sm focus:outline-none focus:border-sky-500/50"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-[11px] text-slate-400 font-bold uppercase tracking-wider">Email (Optional)</label>
-                <div className="relative">
-                  <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-500">
-                    <Mail className="w-4 h-4" />
-                  </span>
-                  <input
-                    type="email"
-                    placeholder="tariq.sulehri@gmail.com"
-                    value={customerEmail}
-                    onChange={(e) => setCustomerEmail(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-slate-100 placeholder-slate-600 text-sm focus:outline-none focus:border-sky-500/50"
-                  />
-                </div>
-              </div>
-
-              <div className="flex space-x-3 pt-4 border-t border-slate-850">
-                <button
-                  type="button"
-                  onClick={() => setShowModal(false)}
-                  className="flex-1 py-2.5 bg-slate-950 hover:bg-slate-850 text-slate-400 hover:text-slate-200 border border-slate-800 rounded-xl text-sm font-semibold transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={bookingLoading}
-                  className="flex-1 py-2.5 bg-gradient-to-r from-sky-500 to-cyan-500 hover:from-sky-600 hover:to-cyan-600 text-slate-950 font-bold rounded-xl text-sm shadow-md transition-all"
-                >
-                  {bookingLoading ? 'Reserving...' : 'Book Slot'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+      {details && (
+        <DetailsDialog
+          appointment={details}
+          customerLabel={vocabulary.customerLabel}
+          timeZone={timeZone}
+          onClose={() => setDetails(null)}
+          onCancelled={async () => {
+            setDetails(null);
+            await fetchDay();
+          }}
+        />
       )}
     </div>
+  );
+};
+
+/** The form to book a free tile. Validated while typing; Save stays visible. */
+const BookDialog: React.FC<{
+  label: string;
+  when: string;
+  withWhom: string;
+  onClose: () => void;
+  onSave: (input: { customerName: string; customerPhone: string; customerEmail: string | null }) => Promise<void>;
+  onFailed: () => void;
+}> = ({ label, when, withWhom, onClose, onSave, onFailed }) => {
+  const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const nameProblem = name.trim() === '' ? `The ${label.toLowerCase()} name is required.` : '';
+  const phoneIssue = phone.trim() === '' ? 'The phone number is required.' : phoneProblem(phone);
+  const emailIssue = emailProblem(email);
+  const firstProblem = nameProblem || phoneIssue || emailIssue;
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (firstProblem) return;
+    setSaving(true);
+    setError('');
+    try {
+      await onSave({ customerName: name.trim(), customerPhone: phone.trim(), customerEmail: email.trim() || null });
+    } catch (err: unknown) {
+      setError(errorText(err, 'Failed to book the appointment.'));
+      setSaving(false);
+      onFailed(); // the time may have been taken meanwhile
+    }
+  };
+
+  return (
+    <FormModal title="Book this time" onClose={onClose} onSubmit={submit} saving={saving} error={error} size="md" canSave={!firstProblem} blockedReason={firstProblem} saveLabel="Book">
+      <p className="text-sm text-slate-300 mb-3">
+        {when}
+        {withWhom && <span className="text-slate-100 font-semibold"> with {withWhom}</span>}
+      </p>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
+        <Field label={`${label} name`} error={nameProblem} className="sm:col-span-2">
+          {(id) => <TextInput id={id} value={name} onChange={(e) => setName(e.target.value)} maxLength={120} autoComplete="off" aria-invalid={Boolean(nameProblem)} />}
+        </Field>
+        <Field label="Phone number" error={phoneIssue}>
+          {(id) => <TextInput id={id} type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={40} aria-invalid={Boolean(phoneIssue)} />}
+        </Field>
+        <Field label="Email (optional)" error={emailIssue}>
+          {(id) => <TextInput id={id} type="email" value={email} onChange={(e) => setEmail(e.target.value)} maxLength={254} aria-invalid={Boolean(emailIssue)} />}
+        </Field>
+      </div>
+    </FormModal>
+  );
+};
+
+/** What the system recorded for a booked tile, with a Cancel that asks before it acts. */
+const DetailsDialog: React.FC<{
+  appointment: Appointment;
+  customerLabel: string;
+  timeZone: string;
+  onClose: () => void;
+  onCancelled: () => Promise<void>;
+}> = ({ appointment, customerLabel, timeZone, onClose, onCancelled }) => {
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const cancel = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      await api.cancelAppointment(appointment.id);
+      await onCancelled();
+    } catch (err: unknown) {
+      setError(errorText(err, 'The appointment could not be cancelled.'));
+      setBusy(false);
+    }
+  };
+
+  const rows: Array<[string, string]> = [
+    ['Date and time', formatDateTime(appointment.appointmentDateTime, timeZone)],
+    [`${customerLabel}`, appointment.customerName],
+    ['Phone', appointment.customerPhone],
+    ['Email', appointment.customerEmail ?? '—'],
+    ['Consultant', appointment.employee?.fullName ?? '—'],
+    ['Service', appointment.category?.name ?? '—'],
+    ['Booked at', formatDateTime(appointment.createdAt, timeZone)],
+    ['Status', appointment.status],
+  ];
+
+  return (
+    <Modal
+      title="Appointment details"
+      onClose={onClose}
+      size="md"
+      footer={
+        <div className="space-y-2">
+          {error && <p role="alert" className="text-sm text-rose-300 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2">{error}</p>}
+          {confirming ? (
+            <div className="flex flex-wrap items-center justify-end gap-3">
+              <p className="mr-auto text-sm text-slate-200">Cancel the appointment for {appointment.customerName}? The time becomes free.</p>
+              <Button kind="secondary" onClick={() => setConfirming(false)} disabled={busy}>Keep it</Button>
+              <Button kind="danger" onClick={cancel} disabled={busy}>{busy ? 'Cancelling…' : 'Yes, cancel it'}</Button>
+            </div>
+          ) : (
+            <div className="flex items-center justify-end gap-3">
+              <Button kind="danger" onClick={() => setConfirming(true)} className="mr-auto">Cancel appointment</Button>
+              <Button kind="secondary" onClick={onClose}>Close</Button>
+            </div>
+          )}
+        </div>
+      }
+    >
+      <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2.5">
+        {rows.map(([label, value]) => (
+          <div key={label}>
+            <dt className="text-[11px] font-bold uppercase tracking-wider text-slate-400">{label}</dt>
+            <dd className="text-sm font-semibold text-slate-100 break-words">{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </Modal>
   );
 };

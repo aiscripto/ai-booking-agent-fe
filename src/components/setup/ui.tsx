@@ -6,15 +6,23 @@ import { X } from 'lucide-react';
 
 const FOCUSABLE = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
 
+type ModalSize = 'sm' | 'md' | 'lg' | 'xl';
+const SIZES: Record<ModalSize, string> = { sm: 'max-w-md', md: 'max-w-xl', lg: 'max-w-3xl', xl: 'max-w-5xl' };
+
 interface ModalProps {
   title: string;
   onClose: () => void;
   children: React.ReactNode;
-  wide?: boolean;
+  size?: ModalSize;
+  /** Buttons that stay visible at the bottom, even when the content has to scroll. */
+  footer?: React.ReactNode;
 }
 
-/** A dialog that holds focus, closes with Escape, and gives focus back to the button that opened it. */
-export const Modal: React.FC<ModalProps> = ({ title, onClose, children, wide }) => {
+/**
+ * A dialog that holds focus, closes with Escape, and gives focus back to the button that opened it.
+ * The header and the footer always stay on screen; only the middle scrolls, and only if it must.
+ */
+export const Modal: React.FC<ModalProps> = ({ title, onClose, children, size = 'md', footer }) => {
   const titleId = useId();
   const box = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
@@ -60,9 +68,9 @@ export const Modal: React.FC<ModalProps> = ({ title, onClose, children, wide }) 
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className={`w-full ${wide ? 'max-w-3xl' : 'max-w-xl'} max-h-[90vh] overflow-y-auto bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl`}
+        className={`w-full ${SIZES[size]} max-h-[94vh] flex flex-col bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl`}
       >
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
+        <div className="flex items-center justify-between px-6 py-3 border-b border-slate-800 shrink-0">
           <h2 id={titleId} className="text-base font-bold text-slate-100 border-l-4 border-sky-500 pl-3">
             {title}
           </h2>
@@ -70,7 +78,8 @@ export const Modal: React.FC<ModalProps> = ({ title, onClose, children, wide }) 
             <X className="w-4 h-4" aria-hidden="true" />
           </button>
         </div>
-        <div className="p-6">{children}</div>
+        <div className="px-6 py-4 overflow-y-auto min-h-0">{children}</div>
+        {footer && <div className="px-6 py-3 border-t border-slate-800 shrink-0">{footer}</div>}
       </div>
     </div>
   );
@@ -79,25 +88,31 @@ export const Modal: React.FC<ModalProps> = ({ title, onClose, children, wide }) 
 interface FieldProps {
   label: string;
   hint?: string;
+  /** A problem with the value, shown right under the field in plain words (the field turns red). */
+  error?: string;
   children: (id: string) => React.ReactNode;
   className?: string;
 }
 
-export const Field: React.FC<FieldProps> = ({ label, hint, children, className }) => {
+export const Field: React.FC<FieldProps> = ({ label, hint, error, children, className }) => {
   const id = useId();
   return (
     <div className={className}>
-      <label htmlFor={id} className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1.5">
+      <label htmlFor={id} className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1">
         {label}
       </label>
       {children(id)}
-      {hint && <p className="text-xs text-slate-400 mt-1">{hint}</p>}
+      {error ? (
+        <p role="alert" className="text-xs text-rose-300 mt-1">{error}</p>
+      ) : (
+        hint && <p className="text-xs text-slate-400 mt-1">{hint}</p>
+      )}
     </div>
   );
 };
 
 const control =
-  'w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500/60 disabled:opacity-60';
+  'w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500/60 disabled:opacity-60 aria-invalid:border-rose-500';
 
 export const TextInput: React.FC<React.InputHTMLAttributes<HTMLInputElement>> = (props) => <input {...props} className={control} />;
 
@@ -155,6 +170,54 @@ export const FormActions: React.FC<{ saving: boolean; error: string; onCancel: (
     </div>
   </div>
 );
+
+/**
+ * A dialog around a form. Save and Cancel stay at the bottom, always visible. `canSave` false (for example a
+ * field is invalid) turns Save off; `blockedReason` says why, in plain words.
+ */
+export const FormModal: React.FC<{
+  title: string;
+  onClose: () => void;
+  onSubmit: (e: React.FormEvent) => void;
+  saving: boolean;
+  error: string;
+  size?: ModalSize;
+  canSave?: boolean;
+  blockedReason?: string;
+  saveLabel?: string;
+  children: React.ReactNode;
+}> = ({ title, onClose, onSubmit, saving, error, size = 'md', canSave = true, blockedReason = '', saveLabel = 'Save', children }) => {
+  const formId = useId();
+  return (
+    <Modal
+      title={title}
+      onClose={onClose}
+      size={size}
+      footer={
+        <div className="space-y-2">
+          {error && (
+            <p role="alert" className="text-sm text-rose-300 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2">
+              {error}
+            </p>
+          )}
+          <div className="flex items-center justify-end gap-3">
+            {!canSave && blockedReason && <p className="mr-auto text-xs text-amber-300">{blockedReason}</p>}
+            <Button kind="secondary" onClick={onClose} disabled={saving}>
+              Cancel
+            </Button>
+            <Button type="submit" form={formId} disabled={saving || !canSave}>
+              {saving ? 'Saving…' : saveLabel}
+            </Button>
+          </div>
+        </div>
+      }
+    >
+      <form id={formId} onSubmit={onSubmit} noValidate>
+        {children}
+      </form>
+    </Modal>
+  );
+};
 
 /** The four states of a list: loading, error (with retry), empty, and the content. */
 export const ListState: React.FC<{

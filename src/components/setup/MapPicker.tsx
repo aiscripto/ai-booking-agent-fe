@@ -63,5 +63,5 @@ export const MapPicker: React.FC<MapPickerProps> = ({ latitude, longitude, onPic
     }
   }, [latitude, longitude]);
 
-  return <div ref={box} role="application" aria-label="Map: click to set the business location" className="h-72 w-full rounded-xl border border-slate-700 overflow-hidden z-0" />;
+  return <div ref={box} role="application" aria-label="Map: click to set the business location" className="h-full min-h-[18rem] w-full rounded-xl border border-slate-700 overflow-hidden z-0" />;
 };

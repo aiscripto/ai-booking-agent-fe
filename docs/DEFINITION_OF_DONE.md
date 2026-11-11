@@ -93,6 +93,9 @@ State in your summary **which flows you exercised and which you could not.**
       `overflow-x-auto` container.
 - [ ] Icons from lucide-react at sizes consistent with neighbours.
 - [ ] Staff surfaces stay dense and glanceable — they are read mid-phone-call.
+- [ ] **R10:** designed as a Principal UI/UX Designer and Developer. Each form was checked at 1366 x 768 and 1920 x 1080:
+      it fits without scrolling (columns, tabs or steps), Save stays visible, a form with a map or preview is side by
+      side (form left, visual right), and fields are validated next to the field while typing.
 
 ## 7. Reporting — manual
 
