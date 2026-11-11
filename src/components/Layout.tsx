@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useVocabulary } from '../services/vocabulary';
 import { can, getSessionUser } from '../services/session';
-import { LayoutDashboard, Calendar, PhoneCall, LogOut, CalendarCheck, BarChart3, Stethoscope, Settings } from 'lucide-react';
+import { LayoutDashboard, Calendar, PhoneCall, LogOut, CalendarCheck, BarChart3, Settings, ChevronDown, ChevronRight } from 'lucide-react';
+import { SETUP_SECTIONS, isSetupTab } from '../pages/setup/sections';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -22,15 +23,19 @@ export const Layout: React.FC<LayoutProps> = ({
   const menuItems = [
     { id: 'dashboard', name: 'Overview', icon: LayoutDashboard },
     { id: 'calendar', name: 'Calendar View', icon: Calendar },
-    { id: 'doctor-schedules', name: 'Provider Schedules', icon: Stethoscope },
     { id: 'logs', name: 'Call Transcripts', icon: PhoneCall },
     { id: 'book-online', name: 'New Booking', icon: CalendarCheck },
     { id: 'analytics', name: 'Analytics', icon: BarChart3 },
-    // Setup is shown only to roles that may use at least one of its screens.
-    ...(can('settings.business') || can('organization.manage') || can('users.manage')
-      ? [{ id: 'setup', name: 'Setup', icon: Settings }]
-      : []),
   ];
+
+  // Setup is a group in the sidebar. A user sees only the sections their role allows (none = no Setup item).
+  const setupItems = SETUP_SECTIONS.filter((section) => can(section.permission));
+  const setupActive = isSetupTab(activeTab);
+  const [setupOpen, setSetupOpen] = useState(setupActive);
+  const toggleSetup = () => {
+    if (!setupOpen && !setupActive && setupItems[0]) setActiveTab(setupItems[0].tab);
+    setSetupOpen(!setupOpen);
+  };
 
 
 
@@ -75,6 +80,48 @@ export const Layout: React.FC<LayoutProps> = ({
                 </button>
               );
             })}
+
+            {setupItems.length > 0 && (
+              <div>
+                <button
+                  type="button"
+                  onClick={toggleSetup}
+                  aria-expanded={setupOpen}
+                  className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 ${
+                    setupActive ? 'text-sky-400' : 'text-slate-400 hover:bg-slate-800/50 hover:text-slate-200'
+                  }`}
+                >
+                  <span className="flex items-center space-x-3">
+                    <Settings className="w-5 h-5" aria-hidden="true" />
+                    <span>Setup</span>
+                  </span>
+                  {setupOpen ? <ChevronDown className="w-4 h-4" aria-hidden="true" /> : <ChevronRight className="w-4 h-4" aria-hidden="true" />}
+                </button>
+                {setupOpen && (
+                  <ul className="mt-1 ml-5 pl-3 border-l border-slate-800 space-y-1">
+                    {setupItems.map((section) => {
+                      const SectionIcon = section.icon;
+                      const active = activeTab === section.tab;
+                      return (
+                        <li key={section.id}>
+                          <button
+                            type="button"
+                            onClick={() => setActiveTab(section.tab)}
+                            aria-current={active ? 'page' : undefined}
+                            className={`w-full flex items-center space-x-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                              active ? 'bg-sky-600 text-white' : 'text-slate-300 hover:bg-slate-800/60 hover:text-slate-100'
+                            }`}
+                          >
+                            <SectionIcon className="w-4 h-4" aria-hidden="true" />
+                            <span>{section.name}</span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            )}
           </nav>
         </div>
 
@@ -106,7 +153,7 @@ export const Layout: React.FC<LayoutProps> = ({
         {/* Header */}
         <header className="h-16 bg-slate-900/60 backdrop-blur-md border-b border-slate-800 flex items-center justify-between px-8">
           <h2 className="text-xl font-bold tracking-wide">
-            {menuItems.find((item) => item.id === activeTab)?.name || 'Dashboard'}
+            {setupActive ? `Setup: ${SETUP_SECTIONS.find((section) => section.tab === activeTab)?.name ?? ''}` : menuItems.find((item) => item.id === activeTab)?.name || 'Dashboard'}
           </h2>
           {/* No "agent active" light: the app has no real way to know that, so it shows nothing. */}
         </header>

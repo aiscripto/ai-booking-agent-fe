@@ -60,8 +60,8 @@ export const Dashboard: React.FC<DashboardProps> = () => {
     }
   };
 
-  // Appointments record a customer, a phone number and a time. They do not record a provider or a
-  // service, so none is shown (nothing is made up to fill those columns).
+  // Appointments record a customer, a phone number and a time, and (with consultants) who and what for.
+  // Older bookings have neither, so none is shown (nothing is made up to fill those columns).
   const mappedBookings: BookingItem[] = appointments.map((a) => ({
     id: a.id,
     customerName: a.customerName,
@@ -69,6 +69,9 @@ export const Dashboard: React.FC<DashboardProps> = () => {
     customerEmail: a.customerEmail,
     appointmentDateTime: a.appointmentDateTime,
     status: a.status,
+    // Shown only when the booking really records them (consultant mode); empty for older bookings.
+    providerName: a.employee?.fullName,
+    serviceName: a.category?.name,
   }));
 
   if (loading) {

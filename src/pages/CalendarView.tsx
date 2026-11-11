@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../services/api';
 import type { Appointment, AvailableSlots } from '../services/api';
 import { useVocabulary } from '../services/vocabulary';
+import { useConsultants } from '../services/consultants';
 import { formatDateLong, formatDateTime, timeKey, todayKey, weekdayOf, zonedTimeToUtc } from '../services/time';
 import { Plus, Trash2, Calendar as CalendarIcon, User, Phone, Mail, X, ChevronLeft, ChevronRight } from 'lucide-react';
 
@@ -12,7 +13,16 @@ export const CalendarView: React.FC = () => {
   const [pickedDate, setPickedDate] = useState<string>('');
   const selectedDate = pickedDate || todayKey(timeZone);
 
-  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  // With consultants the day is shown for ONE consultant at a time (their bookings and their free times).
+  // "none" shows older bookings that were made before consultants were set up.
+  const consultantInfo = useConsultants();
+  const [consultantChoice, setConsultantChoice] = useState('');
+  const consultantId = consultantInfo.active ? consultantChoice || consultantInfo.consultants[0]?.id || '' : '';
+  const [allAppointments, setAllAppointments] = useState<Appointment[]>([]);
+  const appointments = consultantInfo.active
+    ? allAppointments.filter((a) => (consultantId === 'none' ? !a.employeeId : a.employeeId === consultantId))
+    : allAppointments;
+  const unassignedCount = consultantInfo.active ? allAppointments.filter((a) => !a.employeeId).length : 0;
   // Which times can really be booked (appointments plus Google Calendar), from the server.
   const [availability, setAvailability] = useState<AvailableSlots | null>(null);
   const [availabilityError, setAvailabilityError] = useState('');
@@ -48,12 +58,13 @@ export const CalendarView: React.FC = () => {
     setAvailabilityError('');
     const [appointmentResult, availabilityResult] = await Promise.allSettled([
       api.getAppointments(selectedDate),
-      api.getAvailableSlots(selectedDate),
+      // Older bookings (no consultant) have no free times to offer.
+      consultantId === 'none' ? Promise.resolve<AvailableSlots>({ closed: false, unavailable: false, message: '', slots: [] }) : api.getAvailableSlots(selectedDate, { employeeId: consultantId || undefined }),
     ]);
     if (appointmentResult.status === 'fulfilled') {
-      setAppointments(appointmentResult.value);
+      setAllAppointments(appointmentResult.value);
     } else {
-      setAppointments([]);
+      setAllAppointments([]);
       const reason: unknown = appointmentResult.reason;
       setError(reason instanceof Error && reason.message ? reason.message : 'Failed to retrieve appointments.');
     }
@@ -67,10 +78,11 @@ export const CalendarView: React.FC = () => {
     setLoading(false);
   };
 
+  const consultantsReady = !consultantInfo.loading;
   useEffect(() => {
-    fetchDay();
+    if (consultantsReady) fetchDay();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedDate]);
+  }, [selectedDate, consultantId, consultantsReady]);
 
   // Find the appointment that starts at a specific slot time on the selected date
   const getAppointmentForSlot = (slotTime: string) =>
@@ -80,13 +92,15 @@ export const CalendarView: React.FC = () => {
   const freeTimes = new Set((availability?.slots ?? []).map((s) => timeKey(s.iso, timeZone)));
   const canCheckFreeTimes = availability !== null && !availability.unavailable;
 
-  // 30-minute rows across the business's opening hours (from the server). Nothing on a closed day.
+  // 30-minute rows across the business's opening hours for that weekday (from the server).
+  // Nothing on a closed day; a break between two ranges leaves a gap.
   const timeSlots: string[] = [];
-  if (businessHours && businessHours.days.includes(weekdayOf(selectedDate))) {
-    const [startH, startM] = businessHours.start.split(':').map(Number);
-    const [endH, endM] = businessHours.end.split(':').map(Number);
+  for (const range of businessHours?.weekly[weekdayOf(selectedDate)] ?? []) {
+    const [startH, startM] = range.start.split(':').map(Number);
+    const [endH, endM] = range.end.split(':').map(Number);
     for (let minutes = startH * 60 + startM; minutes + 30 <= endH * 60 + endM; minutes += 30) {
-      timeSlots.push(`${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`);
+      const label = `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+      if (!timeSlots.includes(label)) timeSlots.push(label);
     }
   }
 
@@ -176,6 +190,7 @@ export const CalendarView: React.FC = () => {
         customerName,
         customerPhone,
         customerEmail: customerEmail || null,
+        employeeId: consultantInfo.active && consultantId !== 'none' ? consultantId : undefined,
       });
 
       setShowModal(false);
@@ -327,6 +342,24 @@ export const CalendarView: React.FC = () => {
               {selectedDate}
             </span>
           </div>
+
+          {consultantInfo.active && (
+            <div className="flex flex-wrap items-center gap-3">
+              <label htmlFor="calendar-consultant" className="text-xs font-bold uppercase tracking-wider text-slate-400">Consultant</label>
+              <select
+                id="calendar-consultant"
+                value={consultantId}
+                onChange={(e) => setConsultantChoice(e.target.value)}
+                className="bg-slate-950 border border-slate-800 rounded-lg px-3 py-1.5 text-sm text-slate-100"
+              >
+                {consultantInfo.consultants.map((c) => <option key={c.id} value={c.id}>{c.fullName}{c.title ? ` (${c.title})` : ''}</option>)}
+                {unassignedCount > 0 && <option value="none">Older bookings (no consultant)</option>}
+              </select>
+              {unassignedCount > 0 && consultantId !== 'none' && (
+                <span className="text-xs text-amber-300">{unassignedCount} older booking(s) today have no consultant; choose "Older bookings" to see them.</span>
+              )}
+            </div>
+          )}
 
           {/* Filter Tabs */}
           <div className="flex bg-slate-950/80 p-1 rounded-xl border border-slate-850 max-w-sm animate-fade-in">

@@ -201,6 +201,12 @@ export interface Appointment {
   id: string;
   tenantId: string;
   calendarId: string;
+  /** Who the appointment is with (consultant mode). Empty for older bookings. */
+  employeeId?: string | null;
+  employee?: { id: string; fullName: string } | null;
+  category?: { id: string; name: string } | null;
+  /** Only in the answer to a new booking. */
+  consultant?: { id: string; fullName: string; title: string | null } | null;
   appointmentDateTime: string;
   customerName: string;
   customerPhone: string;
@@ -232,9 +238,14 @@ export interface CallLog {
 
 /** When appointments can be offered. Days: 0 = Sunday ... 6 = Saturday. Times are 24-hour HH:MM. */
 export interface BusinessHours {
+  /** Earliest opening of the week (short form, for the day grid). */
   start: string;
+  /** Latest closing of the week (never 24:00). */
   end: string;
+  /** Weekdays with any opening hours. */
   days: number[];
+  /** The full answer: seven lists (Sunday first) of {start, end} ranges. */
+  weekly: Array<Array<{ start: string; end: string }>>;
 }
 
 /** Free times for one date, as the server works them out (appointments plus Google Calendar). */
@@ -246,7 +257,13 @@ export interface AvailableSlots {
   /** The server's own sentence about the day. */
   message: string;
   /** Each free time: the UTC instant to book and the label to show (in the business's time zone). */
-  slots: Array<{ iso: string; label: string }>;
+  slots: Array<{ iso: string; label: string; /** Consultants free at that time (empty without consultants). */ consultants: string[] }>;
+}
+
+/** Who can be booked and for what. Empty lists mean the business books one calendar. */
+export interface ConsultantsInfo {
+  categories: Array<{ id: string; name: string; description: string | null }>;
+  consultants: Array<{ id: string; fullName: string; title: string | null; categoryIds: string[] }>;
 }
 
 /** tenant = its own Google account, shared = the server's shared account, none = no Google account. */
@@ -331,6 +348,9 @@ export const api = {
     customerName: string;
     customerPhone: string;
     customerEmail?: string | null;
+    /** Consultant mode: a consultant and/or a service (ids). Leave out for "anyone". */
+    employeeId?: string;
+    categoryId?: string;
   }): Promise<Appointment> {
     const res = await request(`${API_BASE_URL}/appointments`, {
       method: 'POST',
@@ -403,10 +423,10 @@ export const api = {
    *
    * @throws {Error} when not signed in or the server returns an error.
    */
-  async getAvailableSlots(date: string): Promise<AvailableSlots> {
+  async getAvailableSlots(date: string, filter: { categoryId?: string; employeeId?: string } = {}): Promise<AvailableSlots> {
     const user = getSessionUser();
     if (!user) throw new Error('Please sign in.');
-    const query = `tenant_id=${encodeURIComponent(user.tenantId)}&date=${encodeURIComponent(date)}&limit=50`;
+    const query = `tenant_id=${encodeURIComponent(user.tenantId)}&date=${encodeURIComponent(date)}&limit=50${filter.categoryId ? `&category=${encodeURIComponent(filter.categoryId)}` : ''}${filter.employeeId ? `&consultant=${encodeURIComponent(filter.employeeId)}` : ''}`;
     const res = await request(`${API_BASE_URL}/voice/check-availability?${query}`);
     const data = await unwrap<{
       responseText: string;
@@ -414,12 +434,13 @@ export const api = {
       unavailable: boolean;
       availableSlots: string[];
       availableSlotsIso: string[];
+      slotConsultants?: string[][];
     }>(res);
     return {
       closed: data.closed,
       unavailable: data.unavailable,
       message: data.responseText,
-      slots: data.availableSlotsIso.map((iso, i) => ({ iso, label: data.availableSlots[i] })),
+      slots: data.availableSlotsIso.map((iso, i) => ({ iso, label: data.availableSlots[i], consultants: data.slotConsultants?.[i] ?? [] })),
     };
   },
 
@@ -456,6 +477,11 @@ export const api = {
   async getVocabulary(): Promise<TenantVocabularyResponse> {
     const res = await request(`${API_BASE_URL}/tenant/vocabulary`);
     return unwrap<TenantVocabularyResponse>(res);
+  },
+
+  /** Consultants and service categories (active only), for the booking screens. */
+  async getConsultants(): Promise<ConsultantsInfo> {
+    return unwrap<ConsultantsInfo>(await request(`${API_BASE_URL}/tenant/consultants`));
   },
 
   // ── Resources (providers) ─────────────────────────────────────────────────
@@ -560,6 +586,29 @@ export const api = {
     },
     async updateEmployee(id: string, input: A.EmployeeInput): Promise<A.EmployeeRow> {
       return unwrap<A.EmployeeRow>(await request(`${API_BASE_URL}/admin/employees/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(input) }));
+    },
+
+    async listCategories(): Promise<A.ServiceCategoryRow[]> {
+      return unwrap<A.ServiceCategoryRow[]>(await request(`${API_BASE_URL}/admin/categories`));
+    },
+    async createCategory(input: A.CategoryInput): Promise<A.ServiceCategoryRow> {
+      return unwrap<A.ServiceCategoryRow>(await request(`${API_BASE_URL}/admin/categories`, { method: 'POST', body: JSON.stringify(input) }));
+    },
+    async updateCategory(id: string, input: A.CategoryInput): Promise<A.ServiceCategoryRow> {
+      return unwrap<A.ServiceCategoryRow>(await request(`${API_BASE_URL}/admin/categories/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(input) }));
+    },
+    async deleteCategory(id: string): Promise<void> {
+      await unwrap<unknown>(await request(`${API_BASE_URL}/admin/categories/${encodeURIComponent(id)}`, { method: 'DELETE' }));
+    },
+
+    async listTimeOff(employeeId: string): Promise<A.TimeOffRow[]> {
+      return unwrap<A.TimeOffRow[]>(await request(`${API_BASE_URL}/admin/employees/${encodeURIComponent(employeeId)}/time-off`));
+    },
+    async addTimeOff(employeeId: string, input: A.TimeOffInput): Promise<A.TimeOffRow> {
+      return unwrap<A.TimeOffRow>(await request(`${API_BASE_URL}/admin/employees/${encodeURIComponent(employeeId)}/time-off`, { method: 'POST', body: JSON.stringify(input) }));
+    },
+    async deleteTimeOff(id: string): Promise<void> {
+      await unwrap<unknown>(await request(`${API_BASE_URL}/admin/time-off/${encodeURIComponent(id)}`, { method: 'DELETE' }));
     },
 
     async listPermissions(): Promise<A.PermissionInfo[]> {

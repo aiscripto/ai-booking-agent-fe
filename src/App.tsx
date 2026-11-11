@@ -6,8 +6,8 @@ import { CalendarView } from './pages/CalendarView';
 import { CallLogsView } from './pages/CallLogsView';
 import { NewBookingPage } from './pages/NewBookingPage';
 import { AnalyticsView } from './pages/AnalyticsView';
-import { DoctorDirectoryManager } from './pages/DoctorDirectoryManager';
 import { SetupView } from './pages/setup/SetupView';
+import { SETUP_SECTIONS } from './pages/setup/sections';
 import { api } from './services/api';
 import { AUTH_EXPIRED_EVENT } from './services/session';
 
@@ -70,11 +70,12 @@ function App() {
     >
       {activeTab === 'dashboard' && <Dashboard setActiveTab={setActiveTab} />}
       {activeTab === 'calendar' && <CalendarView />}
-      {activeTab === 'doctor-schedules' && <DoctorDirectoryManager />}
       {activeTab === 'logs' && <CallLogsView />}
       {activeTab === 'book-online' && <NewBookingPage />}
       {activeTab === 'analytics' && <AnalyticsView />}
-      {activeTab === 'setup' && <SetupView />}
+      {SETUP_SECTIONS.filter((s) => s.tab === activeTab).map((s) => (
+        <SetupView key={s.tab} section={s.id} />
+      ))}
     </Layout>
   );
 }

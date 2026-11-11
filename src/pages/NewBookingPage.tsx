@@ -4,6 +4,7 @@ import { api } from '../services/api';
 import type { Appointment, AvailableSlots } from '../services/api';
 import { useVocabulary } from '../services/vocabulary';
 import { formatDateTime, todayKey } from '../services/time';
+import { useConsultants } from '../services/consultants';
 
 const errorText = (err: unknown, fallback: string): string => (err instanceof Error && err.message ? err.message : fallback);
 
@@ -15,6 +16,11 @@ const errorText = (err: unknown, fallback: string): string => (err instanceof Er
  */
 export const NewBookingPage: React.FC = () => {
   const { vocabulary, timeZone } = useVocabulary();
+  // With consultants, a booking is with one of them (or "anyone" free), for a service.
+  const consultantInfo = useConsultants();
+  const [categoryId, setCategoryId] = useState('');
+  const [employeeId, setEmployeeId] = useState('');
+  const offered = consultantInfo.consultants.filter((c) => !categoryId || c.categoryIds.includes(categoryId));
 
   const [pickedDate, setPickedDate] = useState('');
   const date = pickedDate || todayKey(timeZone);
@@ -36,7 +42,7 @@ export const NewBookingPage: React.FC = () => {
     setSlotsLoading(true);
     setSlotsError('');
     try {
-      const result = await api.getAvailableSlots(date);
+      const result = await api.getAvailableSlots(date, { categoryId: categoryId || undefined, employeeId: employeeId || undefined });
       setAvailability(result);
       // Keep the choice only if that time is still free.
       setSelectedIso((current) => (result.slots.some((s) => s.iso === current) ? current : ''));
@@ -46,11 +52,13 @@ export const NewBookingPage: React.FC = () => {
     } finally {
       setSlotsLoading(false);
     }
-  }, [date]);
+  }, [date, categoryId, employeeId]);
 
+  // Wait until we know whether there are consultants, so the first answer already has the right filter.
+  const consultantsReady = !consultantInfo.loading;
   useEffect(() => {
-    loadSlots();
-  }, [loadSlots]);
+    if (consultantsReady) loadSlots();
+  }, [loadSlots, consultantsReady]);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -71,6 +79,8 @@ export const NewBookingPage: React.FC = () => {
         customerName: customerName.trim(),
         customerPhone: customerPhone.trim(),
         customerEmail: customerEmail.trim() || undefined,
+        employeeId: employeeId || undefined,
+        categoryId: categoryId || undefined,
       });
       setConfirmed(saved);
       setSelectedIso('');
@@ -109,6 +119,12 @@ export const NewBookingPage: React.FC = () => {
             <dt className="text-slate-400">Phone</dt>
             <dd className="font-mono text-sky-400">{confirmed.customerPhone}</dd>
           </div>
+          {confirmed.consultant && (
+            <div className="flex justify-between border-b border-slate-800/80 pb-2">
+              <dt className="text-slate-400">With</dt>
+              <dd className="font-bold text-slate-200">{confirmed.consultant.fullName}</dd>
+            </div>
+          )}
           <div className="flex justify-between border-b border-slate-800/80 pb-2">
             <dt className="text-slate-400">Date and time</dt>
             <dd className="font-mono text-sky-400 font-bold">{formatDateTime(confirmed.appointmentDateTime, timeZone)}</dd>
@@ -138,6 +154,50 @@ export const NewBookingPage: React.FC = () => {
       </div>
 
       <form onSubmit={handleSubmit} className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-2xl space-y-8">
+        {consultantInfo.error && (
+          <div role="alert" className="bg-amber-500/10 border border-amber-500/20 text-amber-300 rounded-xl p-4 text-sm">
+            The consultants could not be loaded ({consultantInfo.error}). Times shown may not match a consultant.
+          </div>
+        )}
+        {consultantInfo.active && (
+          <section className="space-y-3" aria-labelledby="step-who">
+            <h2 id="step-who" className="text-xs font-bold uppercase tracking-wider text-slate-400">Service and consultant</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label htmlFor="booking-category" className="text-xs text-slate-400 font-semibold">Service</label>
+                <select
+                  id="booking-category"
+                  value={categoryId}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setCategoryId(next);
+                    // Keep the chosen consultant only if they offer the new service.
+                    const stillOffered = consultantInfo.consultants.find((c) => c.id === employeeId)?.categoryIds.includes(next) ?? false;
+                    if (next && !stillOffered) setEmployeeId('');
+                  }}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-slate-100"
+                >
+                  <option value="">Any service</option>
+                  {consultantInfo.categories.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="booking-consultant" className="text-xs text-slate-400 font-semibold">Consultant</label>
+                <select
+                  id="booking-consultant"
+                  value={employeeId}
+                  onChange={(e) => setEmployeeId(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-sm text-slate-100"
+                >
+                  <option value="">Anyone free</option>
+                  {offered.map((c) => <option key={c.id} value={c.id}>{c.fullName}{c.title ? ` (${c.title})` : ''}</option>)}
+                </select>
+              </div>
+            </div>
+            {!employeeId && <p className="text-xs text-slate-400">With "Anyone free", the system picks a free consultant when you save.</p>}
+          </section>
+        )}
+
         <section className="space-y-3" aria-labelledby="step-date">
           <h2 id="step-date" className="text-xs font-bold uppercase tracking-wider text-slate-400">1. Date</h2>
           <label htmlFor="booking-date" className="sr-only">Date</label>
@@ -187,6 +247,9 @@ export const NewBookingPage: React.FC = () => {
                   }`}
                 >
                   {slot.label}
+                  {!employeeId && slot.consultants.length > 0 && (
+                    <span className="block text-[10px] font-normal text-slate-400 mt-0.5">{slot.consultants.join(', ')}</span>
+                  )}
                 </button>
               ))}
             </div>

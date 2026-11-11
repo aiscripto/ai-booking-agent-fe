@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { api } from './api';
 import type { TenantVocabularyResponse } from './api';
 import { browserTimeZone } from './time';
+import type { BusinessHours } from './api';
 
 export interface IndustryVocabulary {
   resourceLabel: string;
@@ -18,6 +19,17 @@ const NEUTRAL_VOCABULARY: IndustryVocabulary = {
   serviceLabel: 'Appointment',
   statusInProgress: 'In progress',
 };
+
+/**
+ * The weekly hours, always. An older server sends only start, end and days: then every open day gets that one range.
+ * With nothing sent, there are no hours (nothing is made up).
+ */
+function withWeekly(hours: BusinessHours | undefined | null): BusinessHours | null {
+  if (!hours) return null;
+  if (Array.isArray(hours.weekly) && hours.weekly.length === 7) return hours;
+  const weekly = Array.from({ length: 7 }, (_, day) => (hours.days?.includes(day) ? [{ start: hours.start, end: hours.end }] : []));
+  return { ...hours, weekly };
+}
 
 /**
  * The tenant's own words, name and time zone, from the server.
@@ -51,7 +63,7 @@ export function useVocabulary() {
     tenantName: data?.tenantName ?? null,
     timeZone: data?.timeZone ?? browserTimeZone(),
     /** When appointments can be offered, from the server. Null until loaded (or if loading failed). */
-    businessHours: data?.businessHours ?? null,
+    businessHours: withWeekly(data?.businessHours),
     /** True once the server's zone is known (before that, `timeZone` is only the browser's zone). */
     zoneKnown: Boolean(data?.timeZone),
     loading,

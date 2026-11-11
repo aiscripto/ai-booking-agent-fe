@@ -53,6 +53,9 @@ Run `npm run verify` (or `npm run verify:quick` to skip the production build). M
 - [ ] Lists key on a stable domain id, never the array index.
 - [ ] No state mutation; new objects and arrays only.
 - [ ] All network I/O goes through `src/services/api.ts`. No inline `fetch` in a `.tsx`.
+- [ ] **R9:** no invented data and no fake control. Every number, text and list comes from the API or is an honest
+      empty/error state; every button, filter, search box and toggle has a real handler. A control copied from a
+      reference design that does nothing is left out.
 
 ## 3. The four UI states — manual, mandatory
 

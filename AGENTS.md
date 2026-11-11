@@ -39,6 +39,19 @@ Hard gates. Each maps to an automated check in `scripts/verify.sh`.
 | R6 | Interactive elements are real semantic elements, keyboard-reachable and labelled. | `guards/a11y.sh` + review |
 | R7 | `npx tsc -b` passes with zero errors. | `verify.sh` |
 | R8 | `npx oxlint` reports zero **errors** (currently ratcheted at 2 — see §8). | `verify.sh` |
+| R9 | **No fake data and no fake controls.** Every number, text, list and control on a screen is real and wired. | review only (cannot be automated) |
+
+**R9 in plain words (owner rule, 2026-11-04 and 2026-11-11):**
+- Show real data from the API, or an honest state: "No data yet" or "Could not load" with a retry. Never a made-up
+  number, name, time, slot, summary or success message. A failed call is shown as failed.
+- A control exists only if it does something real. No search box, filter, toggle, button, badge-that-looks-like-a-button
+  or "live" light that is not wired to real behavior. If a reference design has one, copy the **layout only**, leave the
+  control out, and offer to build it for real.
+- Placeholder text in a field is neutral ("Search…", "Name"). It never looks like real data (no invented names, phone
+  numbers, addresses).
+- Static labels are fine when they are true (for example a section name). They must not imply a state the system does
+  not know.
+- Before finishing, search the change for hardcoded sample values, mock branches and controls with no handler.
 
 R1–R6 and R8 carry a **baseline ratchet** (§8): existing violations are recorded and
 tolerated, but the count must never increase. R7 is a hard zero.
